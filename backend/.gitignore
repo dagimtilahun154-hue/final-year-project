@@ -1,0 +1,23 @@
+# Environment — NEVER commit secrets (NFR-SEC-05)
+.env
+.env.local
+
+# Dependencies
+node_modules/
+
+# Logs (NFR-MNT-03)
+logs/
+*.log
+npm-debug.log*
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+.nyc_output/
+
+# IDE
+.vscode/
+.idea/

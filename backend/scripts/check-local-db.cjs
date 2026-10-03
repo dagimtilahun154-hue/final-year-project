@@ -1,0 +1,1 @@
+require('dotenv').config(); const db=require('../src/config/db'); db.query('SELECT current_database() AS name').then(r=>console.log(JSON.stringify({connected:true,local:['localhost','127.0.0.1',undefined].includes(process.env.DB_HOST),development:/dev|test/i.test(r.rows[0].name)}))).catch(e=>console.log(JSON.stringify({connected:false,code:e.code}))).finally(()=>db.end());

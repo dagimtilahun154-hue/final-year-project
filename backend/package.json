@@ -1,0 +1,48 @@
+{
+  "name": "ankelba-backend",
+  "version": "1.0.0",
+  "description": "Ankelba - Parent Communication and Child Activity Reporting Platform for Daycare Centers",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "migrate": "knex migrate:latest --knexfile src/config/knexfile.js",
+    "migrate:rollback": "knex migrate:rollback --knexfile src/config/knexfile.js",
+    "seed": "knex seed:run --knexfile src/config/knexfile.js",
+    "test": "node master_audit.js",
+    "audit": "node master_audit.js",
+    "lint": "eslint src/**/*.js"
+  },
+  "keywords": [
+    "daycare",
+    "communication",
+    "reporting",
+    "ankelba"
+  ],
+  "author": "Arsema Alemayehu; Helina Fikru; Melat Hailu; Mistire Tilahun",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "groq-sdk": "^1.6.0",
+    "helmet": "^7.1.0",
+    "joi": "^17.13.1",
+    "jsonwebtoken": "^9.0.2",
+    "knex": "^3.1.0",
+    "morgan": "^1.10.0",
+    "pg": "^8.12.0",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.9.0",
+    "nodemon": "^3.1.4",
+    "prettier": "^3.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
