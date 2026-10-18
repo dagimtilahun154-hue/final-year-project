@@ -216,6 +216,7 @@ export interface Product {
   description?: string;
   price: number; // in ETB
   stock_quantity?: number;
+  stock_qty?: number;
   in_stock?: boolean;
   image_url?: string;
   is_active?: boolean;

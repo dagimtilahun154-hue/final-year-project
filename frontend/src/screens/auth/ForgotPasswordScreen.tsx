@@ -107,7 +107,7 @@ export function ForgotPasswordScreen() {
       >
         <Button
           title="Request Reset"
-          variant={mode === "request" ? "primary" : "ghost"}
+          variant={mode === "request" ? "primary" : "secondary"}
           onPress={() => {
             setMode("request");
             setMessage("");
@@ -116,7 +116,7 @@ export function ForgotPasswordScreen() {
         />
         <Button
           title="I Have A Token"
-          variant={mode === "reset" ? "primary" : "ghost"}
+          variant={mode === "reset" ? "primary" : "secondary"}
           onPress={() => {
             setMode("reset");
             setMessage("");

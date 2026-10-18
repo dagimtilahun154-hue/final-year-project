@@ -12,6 +12,7 @@ import { clampQuantity } from "../utils/cart";
 interface ChildContextType {
   selectedChild: ChildSummary | null;
   setSelectedChild: (child: ChildSummary) => void;
+  selectChild: (child: ChildSummary) => void;
   linkedChildren: ChildSummary[];
   // Shopping Cart state
   cart: CartItem[];
@@ -176,6 +177,7 @@ export const ChildProvider: React.FC<{ children: ReactNode }> = ({
       value={{
         selectedChild,
         setSelectedChild,
+        selectChild: setSelectedChild,
         linkedChildren: user?.linked_children || [],
         cart,
         addToCart,

@@ -192,7 +192,7 @@ export function LoginScreen({ navigation, route }: any) {
       {/* MFA Challenge View */}
       {mfaChallenge ? (
         <View style={{ marginBottom: 20 }}>
-          <Notice tone="info">
+          <Notice tone="neutral">
             Two-Factor Authentication is enabled for your account. Please enter the 6-digit code from your authenticator app or your recovery code.
           </Notice>
           <View style={{ marginTop: 14 }}>
@@ -221,7 +221,7 @@ export function LoginScreen({ navigation, route }: any) {
             />
             <Button
               title="Cancel & Sign In With Another Account"
-              variant="ghost"
+              variant="secondary"
               onPress={() => {
                 setMfaChallenge(null);
                 setTotpCode("");

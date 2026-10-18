@@ -348,13 +348,16 @@ export default function Portal() {
     await refresh();
     setToast("Saved successfully.");
   };
-  const upsert = (key: keyof Dataset, row: Row) => (d: Dataset) => ({
-    ...d,
-    [key]:
-      row.id && d[key].some((r) => r.id === row.id)
-        ? d[key].map((r) => (r.id === row.id ? { ...r, ...row } : r))
-        : [{ ...row, id: row.id || Date.now() }, ...d[key]],
-  });
+  const upsert = (key: keyof Dataset, row: Row) => (d: Dataset) => {
+    const list = Array.isArray(d[key]) ? (d[key] as Row[]) : [];
+    return {
+      ...d,
+      [key]:
+        row.id && list.some((r: Row) => r.id === row.id)
+          ? list.map((r: Row) => (r.id === row.id ? { ...r, ...row } : r))
+          : [{ ...row, id: row.id || Date.now() }, ...list],
+    };
+  };
   const save = async (values: Record<string, any>) => {
     if (!modal || saving) return;
     setSaving(true);
@@ -750,6 +753,53 @@ export default function Portal() {
           "/store/orders/" + row.id + "/status",
           body,
           upsert("orders", { ...row, ...body }),
+          "patch",
+        );
+      } else if (kind === "report") {
+        const body = {
+          child_id: Number(values.child_id),
+          report_date: values.report_date || date || today(),
+          meals_summary: values.meals_summary || "",
+          sleep_duration_min: values.sleep_duration_min ? Number(values.sleep_duration_min) : 0,
+          mood: values.mood || "happy",
+          general_observations: values.general_observations || "",
+        };
+        await mutate(
+          "/reports/daily",
+          body,
+          upsert("reports", { id: Date.now(), ...body, recorded_by: actor!.id }),
+          "post",
+        );
+      } else if (kind === "health") {
+        const body = {
+          child_id: Number(values.child_id),
+          record_type: values.record_type || "observation",
+          severity: values.severity || "mild",
+          description: values.description || "",
+          parent_notified: !!values.parent_notified,
+          action_taken: values.action_taken || "",
+        };
+        await mutate(
+          "/health",
+          body,
+          upsert("health", { id: Date.now(), ...body, recorded_by: actor!.id, recorded_at: new Date().toISOString() }),
+          "post",
+        );
+      } else if (kind === "branding") {
+        const body = {
+          name: values.name?.trim(),
+          subdomain_prefix: values.subdomain_prefix?.trim()?.toLowerCase(),
+          primary_color: values.primary_color || "#061224",
+          secondary_color: values.secondary_color || "#FFF4D5",
+          logo_url: values.logo_url || null,
+        };
+        await mutate(
+          "/daycares/branding",
+          body,
+          (d) => ({
+            ...d,
+            daycare: { ...(d.daycare || { id: 1 }), ...body } as Row,
+          }),
           "patch",
         );
       }
@@ -1505,10 +1555,109 @@ function PortalModal({
     ];
     detail = (
       <div className="p-notice">
-        Payment: <Badge value={row.payment_status} /> Payment verification is
-        handled separately.
+        Payment: <Badge value={row.payment_status} /> Payment verification is handled separately.
       </div>
     );
+  } else if (kind === "report") {
+    title = "Create daily report";
+    initial = {
+      child_id: row.child_id ? String(row.child_id) : "",
+      report_date: date || today(),
+      mood: "happy",
+      sleep_duration_min: "60",
+      ...row,
+    };
+    fields = [
+      field("child_id", "Child", "select", true, {
+        wide: true,
+        options: options(data.children, "full_name"),
+      }),
+      field("report_date", "Report Date", "date", true),
+      field("mood", "General Mood", "select", true, {
+        options: ["happy", "content", "playful", "quiet", "tired", "fussy"].map((v) => ({
+          value: v,
+          label: label(v),
+        })),
+      }),
+      field("sleep_duration_min", "Nap Duration (minutes)", "number", false),
+      field("meals_summary", "Meals & Snacks", "textarea", false, {
+        wide: true,
+        placeholder: "Morning snack: bananas. Lunch: lentils and rice (finished all).",
+      }),
+      field("general_observations", "Caregiver Notes & Activities", "textarea", false, {
+        wide: true,
+        placeholder: "Enjoyed sensory finger-painting and outdoor play with friends.",
+      }),
+    ];
+    submit = "Submit Daily Report";
+  } else if (kind === "health") {
+    title = "Log health observation or incident";
+    initial = {
+      child_id: row.child_id ? String(row.child_id) : "",
+      record_type: "observation",
+      severity: "mild",
+      parent_notified: true,
+      ...row,
+    };
+    fields = [
+      field("child_id", "Child", "select", true, {
+        wide: true,
+        options: options(data.children, "full_name"),
+      }),
+      field("record_type", "Record Type", "select", true, {
+        options: ["observation", "incident", "medication", "allergy_reaction", "temperature"].map((v) => ({
+          value: v,
+          label: label(v),
+        })),
+      }),
+      field("severity", "Severity", "select", true, {
+        options: ["mild", "moderate", "urgent"].map((v) => ({
+          value: v,
+          label: label(v),
+        })),
+      }),
+      field("description", "Observation / Incident Details", "textarea", true, {
+        wide: true,
+        placeholder: "Describe the event objectively with time and physical symptoms observed.",
+      }),
+      field("action_taken", "Immediate Action Taken", "textarea", false, {
+        wide: true,
+        placeholder: "First aid administered, rested in quiet corner, cleaned scratch.",
+      }),
+      field("parent_notified", "Parent / Guardian Notified", "checkbox", false, {
+        wide: true,
+      }),
+    ];
+    submit = "Save Health Record";
+  } else if (kind === "branding") {
+    title = "Daycare Branding & Subdomain Settings";
+    const d = (data.daycare || {}) as Record<string, any>;
+    initial = {
+      name: d.name || "",
+      subdomain_prefix: d.subdomain || d.slug || "",
+      primary_color: d.primary_color || "#061224",
+      secondary_color: d.secondary_color || "#FFF4D5",
+      logo_url: d.logo_url || "",
+      ...row,
+    };
+    fields = [
+      field("name", "Daycare Center Name", "text", true, { wide: true }),
+      field("subdomain_prefix", "Daycare Subdomain / Prefix", "text", true, {
+        wide: true,
+        hint: "Parents and staff can access via this prefix (e.g. blossom-daycare).",
+      }),
+      field("primary_color", "Brand Action Color (Hex)", "text", false, {
+        placeholder: "#061224",
+      }),
+      field("secondary_color", "Brand Accent Tint (Hex)", "text", false, {
+        placeholder: "#FFF4D5",
+      }),
+      field("logo_url", "Center Logo Image URL", "text", false, {
+        wide: true,
+        placeholder: "https://... (direct link to PNG or SVG)",
+      }),
+    ];
+    submit = "Save Center Branding";
   } else if (kind === "child-profile") {
     const guardian = data.guardians.find((g) => g.child_id === row.id);
     const parentUser = guardian ? data.users.find((u) => u.id === guardian.user_id) : null;

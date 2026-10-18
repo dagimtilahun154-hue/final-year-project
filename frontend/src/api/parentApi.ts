@@ -252,6 +252,7 @@ export interface StoreProduct {
   stock_qty: number;
   stock_quantity: number;
   available: boolean;
+  in_stock?: boolean;
   is_active?: boolean;
 }
 

@@ -146,14 +146,16 @@ export function Card({
   className = "",
   title,
   action,
+  style,
 }: {
   children: ReactNode;
   className?: string;
   title?: string;
   action?: ReactNode;
+  style?: React.CSSProperties;
 }) {
   return (
-    <section className={"p-card " + className}>
+    <section className={"p-card " + className} style={style}>
       {(title || action) && (
         <div className="p-card-head">
           {title && <h2>{title}</h2>}
@@ -342,6 +344,7 @@ export type FieldSpec = {
   options?: { value: string; label: string }[];
   wide?: boolean;
   hint?: string;
+  placeholder?: string;
   min?: string;
   max?: string;
 };

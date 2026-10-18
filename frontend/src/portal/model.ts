@@ -15,6 +15,7 @@ export type Dataset = {
   audit: Row[];
   verifications: Row[];
   messages: Row[];
+  daycare?: Row;
 };
 export const emptyDataset = (): Dataset => ({ users: [], children: [], groups: [], duties: [], attendance: [], reports: [], health: [], guardians: [], events: [], announcements: [], products: [], orders: [], audit: [], verifications: [], messages: [] });
 export const today = () =>

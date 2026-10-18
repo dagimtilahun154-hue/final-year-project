@@ -66,7 +66,7 @@ export function PickupVerificationScreen({ route, navigation }: any) {
   }
 
   const guardian =
-    guardians.find((g) => g.id === targetGuardianId || g.guardian_link_id === targetGuardianId) ||
+    guardians.find((g) => g.guardian_link_id === targetGuardianId || g.user_id === targetGuardianId) ||
     guardians[0];
 
   if (!guardian) {

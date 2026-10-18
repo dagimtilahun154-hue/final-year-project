@@ -22,7 +22,7 @@ import {
 } from "../../components/design/System";
 import { useAuth } from "../../context/AuthContext";
 import { apiClient } from "../../api/client";
-import { getMyOrders, OrderRecord } from "../../api/parentApi";
+import { getMyOrders, OrderRecord, getAnnouncements } from "../../api/parentApi";
 import { formatMoney } from "../store/catalog";
 
 export function OrdersScreen({ navigation }: any) {
@@ -229,13 +229,13 @@ export function NotificationsScreen({ navigation }: any) {
       >
         <Button
           title="Inbox & Alerts"
-          variant={tab === "inbox" ? "primary" : "ghost"}
+          variant={tab === "inbox" ? "primary" : "secondary"}
           onPress={() => setTab("inbox")}
           style={{ flex: 1, minHeight: 38 }}
         />
         <Button
           title="Preferences"
-          variant={tab === "preferences" ? "primary" : "ghost"}
+          variant={tab === "preferences" ? "primary" : "secondary"}
           onPress={() => setTab("preferences")}
           style={{ flex: 1, minHeight: 38 }}
         />
@@ -302,14 +302,12 @@ export function NotificationsScreen({ navigation }: any) {
                       {isUrgent && !isAcknowledged ? (
                         <Button
                           title="Acknowledge Receipt"
-                          size="small"
                           onPress={() => acknowledgeAlert(item.id)}
                         />
                       ) : (
                         <Button
                           title={isRead ? "Dismiss" : "Mark as read"}
-                          variant="ghost"
-                          size="small"
+                          variant="secondary"
                           onPress={() => (isRead ? dismissNotification(item.id) : markAsRead(item.id))}
                         />
                       )}
@@ -359,7 +357,6 @@ export function NotificationsScreen({ navigation }: any) {
             <Button
               title={prefReports ? "ON" : "OFF"}
               variant={prefReports ? "primary" : "secondary"}
-              size="small"
               onPress={() => setPrefReports(!prefReports)}
             />
           </View>
@@ -371,7 +368,6 @@ export function NotificationsScreen({ navigation }: any) {
             <Button
               title={prefMessages ? "ON" : "OFF"}
               variant={prefMessages ? "primary" : "secondary"}
-              size="small"
               onPress={() => setPrefMessages(!prefMessages)}
             />
           </View>
@@ -383,7 +379,6 @@ export function NotificationsScreen({ navigation }: any) {
             <Button
               title={prefAnnouncements ? "ON" : "OFF"}
               variant={prefAnnouncements ? "primary" : "secondary"}
-              size="small"
               onPress={() => setPrefAnnouncements(!prefAnnouncements)}
             />
           </View>

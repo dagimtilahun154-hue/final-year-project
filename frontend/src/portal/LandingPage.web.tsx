@@ -469,6 +469,130 @@ export default function LandingPage() {
           </div>
         </div>
       )}
+
+      {/* Daycare Application Status Modal */}
+      {showStatusModal && (
+        <div className="saas-modal-backdrop" onClick={(e) => e.target === e.currentTarget && setShowStatusModal(false)}>
+          <div className="saas-modal-content" style={{ maxWidth: 540 }}>
+            <button className="saas-modal-close" onClick={() => setShowStatusModal(false)}>✕</button>
+            <h2 style={{ fontFamily: "Quicksand_700Bold", fontSize: 24, color: "var(--navy)", margin: "0 0 6px" }}>
+              Check Daycare Application Status
+            </h2>
+            <p style={{ color: "var(--muted)", fontSize: 14, margin: "0 0 20px" }}>
+              Enter the administrator or contact email provided during center registration to view the review status.
+            </p>
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!statusEmail.trim()) return;
+                setStatusLoading(true);
+                setStatusError(null);
+                setStatusResult(null);
+                try {
+                  const res = await portalApi.listDaycares();
+                  const found = (res.daycares || []).find(
+                    (d: any) =>
+                      d.contact_email?.toLowerCase() === statusEmail.trim().toLowerCase() ||
+                      d.admin_email?.toLowerCase() === statusEmail.trim().toLowerCase()
+                  );
+                  if (found) {
+                    setStatusResult(found);
+                  } else {
+                    setStatusError("No daycare application found with this email address.");
+                  }
+                } catch (err: any) {
+                  setStatusError(apiError(err));
+                } finally {
+                  setStatusLoading(false);
+                }
+              }}
+            >
+              <div style={{ marginBottom: 16 }}>
+                <label className="saas-form-label">Contact / Admin Email</label>
+                <input
+                  type="email"
+                  className="saas-form-input"
+                  placeholder="e.g. director@daycare.com"
+                  value={statusEmail}
+                  onChange={(e) => setStatusEmail(e.target.value)}
+                  required
+                />
+              </div>
+
+              {statusError && (
+                <div style={{ background: "#fdf3f0", color: "#c0392b", padding: "10px 14px", borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
+                  {statusError}
+                </div>
+              )}
+
+              {statusResult && (
+                <div style={{ background: "#F4F7FB", padding: "16px", borderRadius: 10, marginBottom: 18, border: "1px solid #E1E8F0" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <strong style={{ fontSize: 16, color: "#10263D" }}>{statusResult.name}</strong>
+                    <span
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 20,
+                        fontSize: 12,
+                        fontWeight: "bold",
+                        backgroundColor:
+                          statusResult.status === "active"
+                            ? "#DEF7EC"
+                            : statusResult.status === "rejected"
+                            ? "#FDE8E8"
+                            : "#FEF08A",
+                        color:
+                          statusResult.status === "active"
+                            ? "#03543F"
+                            : statusResult.status === "rejected"
+                            ? "#9B1C1C"
+                            : "#713F12",
+                      }}
+                    >
+                      {statusResult.status ? statusResult.status.toUpperCase() : "PENDING REVIEW"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 13, color: "#5F6C7B", lineHeight: 1.6 }}>
+                    <div><strong>Plan:</strong> {statusResult.plan || "Standard (Trial)"}</div>
+                    <div><strong>Subdomain / Slug:</strong> {statusResult.subdomain || statusResult.slug || "Assigned on approval"}</div>
+                    {statusResult.status === "active" ? (
+                      <div style={{ marginTop: 10 }}>
+                        <span style={{ color: "#0E9F6E", fontWeight: "600" }}>✓ Your center is approved and operational!</span>
+                        <div style={{ marginTop: 8 }}>
+                          <button
+                            type="button"
+                            className="saas-btn saas-btn-primary"
+                            onClick={() => {
+                              setShowStatusModal(false);
+                              navigateTo("/admin");
+                            }}
+                          >
+                            Sign In to Daycare Portal
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 8, color: "#92400E" }}>
+                        Your application is currently being evaluated by platform administrators. You will be notified once activated.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button type="button" className="saas-btn saas-btn-ghost" onClick={() => setShowStatusModal(false)}>
+                  Close
+                </button>
+                <button type="submit" className="saas-btn saas-btn-primary" disabled={statusLoading}>
+                  {statusLoading ? "Checking..." : "Check Status"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

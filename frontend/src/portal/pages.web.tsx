@@ -1468,7 +1468,12 @@ export function Reports(ctx: PageContext) {
                   Read report
                 </Button>
               ) : (
-                <span className="p-kpi-note">Awaiting caregiver</span>
+                <Button
+                  variant="secondary small"
+                  onClick={() => open("report", { id: 0, child_id: r.id })}
+                >
+                  Create report
+                </Button>
               ),
           },
         ]}
@@ -1486,6 +1491,9 @@ export function Monitoring(ctx: PageContext & { page: string }) {
             <h2>Health & incident records</h2>
             <p>Factual observations and parent notification status</p>
           </div>
+          <Button variant="secondary" icon="plus" onClick={() => open("health")}>
+            Log health / incident
+          </Button>
         </div>
         <Table
           rows={search(

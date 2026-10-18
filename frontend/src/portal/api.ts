@@ -117,6 +117,10 @@ export const portalApi = {
     const { data } = await portalClient.get("/super-admin/stats");
     return data;
   },
+  async listDaycares() {
+    const { data } = await portalClient.get("/super-admin/daycares");
+    return { daycares: data };
+  },
   async getSuperAdminDaycares(params?: any) {
     const { data } = await portalClient.get("/super-admin/daycares", { params });
     return data;
