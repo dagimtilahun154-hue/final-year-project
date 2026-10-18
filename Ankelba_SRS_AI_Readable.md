@@ -19,9 +19,10 @@
 | **Source Baseline** | Updated Senior Project Proposal, August 2026                                   |
 
 ## Revision History
-| **Version** | **Date**    | **Description**                                                                          | **Prepared By** |
-|-------------|-------------|------------------------------------------------------------------------------------------|-----------------|
-| 1.0         | August 2026 | Initial SRS based on the updated senior project proposal and advisor-requested features. | Project Team    |
+| **Version** | **Date**     | **Description**                                                                                                                                                                             | **Prepared By** |
+|-------------|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
+| 1.0         | August 2026  | Initial SRS based on the updated senior project proposal and advisor-requested features.                                                                                                    | Project Team    |
+| 1.1         | October 2026 | Added multi-tenant SaaS architecture: Super Administrator role, Daycare tenant self-registration/approval workflow, 30-day trial subscriptions, and row-level database tenant isolation (`daycare_id`). | Project Team    |
 
 # Table of Contents
 | **1. Introduction**                                        | 1.1 Purpose                                              |
@@ -92,6 +93,9 @@ The updated scope also includes five added areas: a centralized database and rec
 | Biometric Verification  | An additional identity-verification step used for authorized adult guardians during child pickup.                                          |
 | Pay at Daycare          | A payment option in which an order is placed in Ankelba and payment is completed at the daycare.                                           |
 | Digital Payment Gateway | An approved external payment service used to process electronic payments for daycare-store orders.                                         |
+| Super Administrator    | SaaS platform operator responsible for onboarding daycares, approving registrations, managing subscriptions, and platform-wide monitoring.|
+| Tenant / Daycare Center | An independent daycare organization registered on the Ankelba SaaS platform with its own children, staff, classrooms, and operational data.|
+| Row-Level Multi-Tenancy | Database architecture where all operational tables include a `daycare_id` foreign key and queries are scoped to prevent cross-tenant data leakage. |
 | TBD                     | To Be Determined; a requirement detail that must be confirmed during advisor or stakeholder review.                                        |
 
 ## 1.5 References
@@ -139,25 +143,29 @@ Ankelba is a purpose-built daycare information system rather than a general mess
 ## 2.3 User Classes and Characteristics
 | **User Class**                           | **Characteristics / Responsibilities**                                                                                                                                                                                                                     |
 |------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Daycare Administrator                    | Manages users, children, groups, announcements, events, products, basic stock, orders, payment status, monitoring, and guardian biometric enrollment/verification. Requires the highest application privileges.                                            |
+| Super Administrator (SaaS Operator)      | Platform operator who onboards daycares, reviews/approves self-registered daycare applications, manages 30-day trial and standard subscriptions, suspends/activates tenants, and monitors cross-platform health and analytics. Highest global privileges.     |
+| Daycare Administrator                    | Manages users, children, groups, announcements, events, products, basic stock, orders, payment status, monitoring, and guardian biometric enrollment/verification for their specific daycare center.                                                        |
 | Caregiver / Teacher                      | Records and updates child-related operational information such as attendance, daily activities, observations, health notes, and incidents for children within the caregiver's permitted responsibility. Exact assignment restrictions are to be confirmed. |
-| Parent / Guardian                        | Views only linked child information, receives communication, uses the AI Parent Guide, views events, and uses the daycare store. May also be an authorized pickup guardian.                                                                                |
+| Parent / Guardian                        | Views only linked child information, receives communication, uses the AI Parent Guide, views events, and uses the daycare store. May also be an authorized pickup guardian. Strictly linked to a single daycare center.                                    |
 | Authorized Guardian (pickup designation) | An adult approved to collect a child. This is primarily a child-pickup authorization designation rather than a separate application role. The adult may be enrolled for biometric verification.                                                            |
 
 ## 2.4 Role and Access Summary
-| **Function**                             | **Administrator**                   | **Caregiver / Teacher**       | **Parent / Guardian**              |
-|------------------------------------------|-------------------------------------|-------------------------------|------------------------------------|
-| Manage user accounts                     | Yes                                 | No                            | Own account only                   |
-| Manage child profiles and guardian links | Yes                                 | View/update as permitted      | View linked child                  |
-| Record attendance                        | Yes                                 | Yes, as permitted             | View linked child history          |
-| Create daily activity reports            | Monitor / may correct if authorized | Yes                           | View linked child reports          |
-| Record health / incident information     | Yes / monitor                       | Yes                           | View linked child information      |
-| Messages / announcements / alerts        | Manage / publish                    | Communicate as permitted      | Receive / communicate              |
-| AI Parent Guide                          | Not required                        | Not required                  | Yes                                |
-| Biometric guardian enrollment            | Yes                                 | Only if explicitly authorized | No                                 |
-| Biometric pickup verification            | Yes                                 | Only if explicitly authorized | Presents identity for verification |
-| Manage daycare products / orders         | Yes                                 | No unless later authorized    | Browse / order / track             |
-| Manage events                            | Yes                                 | No unless later authorized    | View                               |
+| **Function**                             | **Super Administrator** | **Daycare Administrator**           | **Caregiver / Teacher**       | **Parent / Guardian**              |
+|------------------------------------------|-------------------------|-------------------------------------|-------------------------------|------------------------------------|
+| Onboard / approve daycare tenants        | Yes                     | No                                  | No                            | No                                 |
+| Manage daycare subscription state/trials | Yes                     | View own status                     | No                            | No                                 |
+| Global cross-tenant metrics/audit        | Yes                     | No                                  | No                            | No                                 |
+| Manage user accounts                     | All daycares            | Own daycare only                    | No                            | Own account only                   |
+| Manage child profiles and guardian links | View all                | Yes (own daycare)                   | View/update as permitted      | View linked child                  |
+| Record attendance                        | No                      | Yes                                 | Yes, as permitted             | View linked child history          |
+| Create daily activity reports            | No                      | Monitor / may correct if authorized | Yes                           | View linked child reports          |
+| Record health / incident information     | No                      | Yes / monitor                       | Yes                           | View linked child information      |
+| Messages / announcements / alerts        | Global announcements    | Manage / publish (own center)       | Communicate as permitted      | Receive / communicate              |
+| AI Parent Guide                          | Not required            | Not required                        | Not required                  | Yes                                |
+| Biometric guardian enrollment            | No                      | Yes                                 | Only if explicitly authorized | No                                 |
+| Biometric pickup verification            | No                      | Yes                                 | Only if explicitly authorized | Presents identity for verification |
+| Manage daycare products / orders         | No                      | Yes                                 | No unless later authorized    | Browse / order / track             |
+| Manage events                            | Global/platform events  | Yes (own center)                    | No unless later authorized    | View                               |
 
 *Note: Access for caregivers/teachers is limited to the children and functions permitted by the daycare. The exact assignment model will be confirmed during requirements review.*
 
@@ -279,6 +287,9 @@ The following requirements are written as system behavior statements. They prese
 | **FR-UAM-06** | The system shall restrict administrative functions to users with the required administrative permission.                                   |
 | **FR-UAM-07** | The system shall support logout and invalidate or end the active authenticated session according to the selected session design.           |
 | **FR-UAM-08** | The system shall record sufficient account status information to allow an administrator to disable or reactivate an account when required. |
+| **FR-UAM-09** | The system shall provide a public self-registration interface allowing prospective daycare centers to apply for platform access with daycare details and director credentials. |
+| **FR-UAM-10** | The system shall allow the Super Administrator to review submitted daycare applications, approve or reject them, activate 30-day trial subscriptions, and suspend or reactivate tenant access. |
+| **FR-UAM-11** | The system shall enforce strict row-level tenant data isolation using `daycare_id`, ensuring daycare administrators, staff, and parents are confined strictly to their assigned daycare center. |
 
 ## 4.2 Child Profile Management
 | **ID**       | **Requirement**                                                                                                           |
@@ -357,6 +368,7 @@ The following requirements are written as system behavior statements. They prese
 | **FR-DB-06** | The system shall support creation of database backups as part of deployment and operational preparation.                                                                                                                                                                                            |
 | **FR-DB-07** | The project shall test that a backup can be restored in the selected pilot/deployment environment.                                                                                                                                                                                                  |
 | **FR-DB-08** | The system shall avoid deleting or overwriting related historical records in a way that creates broken relationships without an authorized and controlled operation.                                                                                                                                |
+| **FR-DB-09** | The database shall associate operational entities (users, children, groups, staff duties, attendance, reports, health records, messages, announcements, events, products, orders, audit logs) with a mandatory `daycare_id` reference to maintain strict multi-tenant boundaries. |
 
 ## 4.9 AI Parent Guide
 | **ID**       | **Requirement**                                                                                                                                                                                            |

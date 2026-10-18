@@ -1,12 +1,29 @@
-import React from "react";
-import { View, useWindowDimensions } from "react-native";
+import React, { useEffect } from "react";
+import { View, useWindowDimensions, Pressable, Platform, Linking } from "react-native";
 import { SvgXml } from "react-native-svg";
-import { ArrowRight } from "phosphor-react-native";
+import { ArrowRight, ShieldCheck } from "phosphor-react-native";
 import { Page, Text, Button, BrandMark } from "../../components/design/System";
 import { logoArtwork } from "../../theme/logoArtwork";
-export function SplashScreen({ navigation }: any) {
+import { useAuth } from "../../context/AuthContext";
+
+export function SplashScreen({ navigation, route }: any) {
+  const { user, isLoading, logout } = useAuth();
   const { width } = useWindowDimensions();
   const size = Math.min(width, 480);
+
+  useEffect(() => {
+    if (route?.params?.stay) {
+      return;
+    }
+    if (!isLoading && user) {
+      if (user.role === "parent" && user.profile_complete === false) {
+        navigation.replace("ChildProfileWizard");
+      } else {
+        navigation.replace("MainTabs");
+      }
+    }
+  }, [isLoading, user, navigation, route?.params?.stay]);
+
   return (
     <Page
       header={false}
@@ -49,19 +66,77 @@ export function SplashScreen({ navigation }: any) {
           />
         ))}
       </View>
-      <Button
-        title="Get Started"
-        icon={ArrowRight}
-        onPress={() => navigation.navigate("Onboarding")}
-      />
+      {user ? (
+        <View style={{ gap: 10 }}>
+          <Button
+            title="Go to Home Dashboard"
+            icon={ArrowRight}
+            onPress={() => navigation.navigate("MainTabs")}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={async () => {
+              await logout();
+              navigation.replace("Splash", { stay: true });
+            }}
+            style={{ marginTop: 8, alignItems: "center", paddingVertical: 8 }}
+          >
+            <Text size={13} color="#C53030" weight="semibold">
+              Sign Out ({user.name})
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <Button
+            title="Get Started"
+            icon={ArrowRight}
+            onPress={() => navigation.navigate("Onboarding")}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => navigation.navigate("Login")}
+            style={{ marginTop: 14, alignItems: "center", paddingVertical: 8 }}
+          >
+            <Text size={14} color="#061224" weight="semibold">
+              Already have an account? Sign In
+            </Text>
+          </Pressable>
+        </>
+      )}
+      <Pressable
+        accessibilityRole="link"
+        onPress={() => {
+          if (Platform.OS === "web") {
+            window.location.assign("/admin");
+          } else {
+            Linking.openURL("http://192.168.8.114:8081/admin");
+          }
+        }}
+        style={{
+          marginTop: 14,
+          paddingVertical: 9,
+          paddingHorizontal: 16,
+          borderRadius: 20,
+          backgroundColor: "#E8F6F3",
+          alignItems: "center",
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <ShieldCheck size={16} color="#008794" weight="bold" />
+          <Text size={13} color="#008794" weight="bold">
+            Open Daycare Admin Portal →
+          </Text>
+        </View>
+      </Pressable>
       <Text
         size={11}
         color="#787D87"
         style={{
           textAlign: "center",
           letterSpacing: 1.4,
-          marginTop: 28,
-          marginBottom: 24,
+          marginTop: 24,
+          marginBottom: 20,
         }}
       >
         CONNECTING FAMILIES AND DAYCARE

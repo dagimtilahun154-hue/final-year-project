@@ -27,30 +27,41 @@ import {
 import { artwork } from "../../theme/assets";
 import { useAuth } from "../../context/AuthContext";
 import { useDesign } from "../../context/DesignContext";
+import { useChild } from "../../context/ChildContext";
+
 export function ProfileScreen({ navigation }: any) {
   const { user, logout } = useAuth();
   const { preferences, togglePreference } = useDesign();
+  const { selectedChild } = useChild();
+
+  const childrenList = user?.linked_children?.length
+    ? user.linked_children
+    : selectedChild
+    ? [selectedChild]
+    : [];
+
   return (
     <Page>
       <Card>
         <View style={[s.row, { alignItems: "flex-start" }]}>
-          <Avatar source={artwork.mother} size={64} />
-          <View style={{ flex: 1 }}>
+          <Avatar
+            source={artwork.mother}
+            initials={user?.name ? user.name.slice(0, 2).toUpperCase() : "PA"}
+            size={64}
+          />
+          <View style={{ flex: 1, marginLeft: 8 }}>
             <Text size={22} weight="semibold">
-              {user?.name || "Hana Tesfaye"}
+              {user?.name || "Parent User"}
             </Text>
             <Text
               size={11}
               color="#7E8793"
               style={{ letterSpacing: 0.7, marginTop: 3 }}
             >
-              LIYA’S MOTHER
+              {user?.role ? `${user.role.toUpperCase()} ACCOUNT` : "PARENT ACCOUNT"}
             </Text>
-            <Text size={13} color="#767F8C" style={{ marginTop: 14 }}>
-              {user?.phone || "+251 91 123 4567"}
-            </Text>
-            <Text size={12} color="#767F8C" style={{ marginTop: 5 }}>
-              {user?.email || "hana.tesfaye@example.com"}
+            <Text size={12} color="#767F8C" style={{ marginTop: 8 }}>
+              {user?.email || "No email on record"}
             </Text>
           </View>
           <Pressable
@@ -63,32 +74,47 @@ export function ProfileScreen({ navigation }: any) {
           </Pressable>
         </View>
       </Card>
-      <Text size={19} weight="semibold" style={{ marginVertical: 22 }}>
+
+      <Text size={19} weight="semibold" style={{ marginVertical: 20 }}>
         My Children
       </Text>
-      <Card>
-        <View style={s.row}>
-          <Avatar source={artwork.child} />
-          <View style={{ flex: 1 }}>
-            <Text size={18} weight="medium">
-              Liya
-            </Text>
-            <Text size={12} color="#7E8490">
-              4 years · Sunflower Group
-            </Text>
-          </View>
-          <Button
-            title="View Profile"
-            variant="secondary"
-            onPress={() => navigation.navigate("ChildProfile", { childId: 1 })}
-            style={{
-              minHeight: 42,
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-            }}
-          />
-        </View>
-      </Card>
+
+      {childrenList.length > 0 ? (
+        childrenList.map((ch) => (
+          <Card key={ch.id} style={{ marginBottom: 12 }}>
+            <View style={s.row}>
+              <Avatar
+                source={artwork.child}
+                initials={ch.full_name ? ch.full_name.slice(0, 2).toUpperCase() : "CH"}
+              />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text size={17} weight="medium">
+                  {ch.full_name}
+                </Text>
+                <Text size={12} color="#7E8490">
+                  {ch.group_name || "Early Learning"} · {ch.relationship || "Enrolled"}
+                </Text>
+              </View>
+              <Button
+                title="View Profile"
+                variant="secondary"
+                onPress={() => navigation.navigate("ChildProfile", { childId: ch.id })}
+                style={{
+                  minHeight: 40,
+                  paddingVertical: 8,
+                  paddingHorizontal: 12,
+                }}
+              />
+            </View>
+          </Card>
+        ))
+      ) : (
+        <Card style={{ padding: 18 }}>
+          <Text size={14} color="#7E8490">
+            No children currently linked to this parent account.
+          </Text>
+        </Card>
+      )}
       <View style={[s.row, { marginTop: 22, gap: 14 }]}>
         {[
           {

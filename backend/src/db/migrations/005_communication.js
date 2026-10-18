@@ -24,7 +24,8 @@ exports.up = async (knex) => {
   });
 
   await knex.raw(`ALTER TABLE announcements ADD CONSTRAINT chk_ann_type CHECK (announcement_type IN ('general','alert','meal_plan'))`);
-  await knex.raw(`ALTER TABLE announcements ADD CONSTRAINT chk_ann_audience CHECK (audience IN ('all','group','individual'))`);
+  await knex.raw(`ALTER TABLE announcements ADD CONSTRAINT chk_ann_audience CHECK (audience IN ('all','parents','caregivers','staff','group','individual'))`);
+
 
   // ─── messages ───────────────────────────────────────────────────────────
   // 1:1 direct messages. read_at IS NULL means unread.
@@ -52,8 +53,9 @@ exports.up = async (knex) => {
   });
 
   await knex.raw(`ALTER TABLE alerts ADD CONSTRAINT chk_alerts_urgency CHECK (urgency IN ('normal','high'))`);
-  await knex.raw(`ALTER TABLE alerts ADD CONSTRAINT chk_alerts_scope CHECK (recipient_scope IN ('all','individual'))`);
+  await knex.raw(`ALTER TABLE alerts ADD CONSTRAINT chk_alerts_scope CHECK (recipient_scope IN ('all','parents','caregivers','staff','individual'))`);
 };
+
 
 exports.down = async (knex) => {
   await knex.schema.dropTableIfExists('alerts');

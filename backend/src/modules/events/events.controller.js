@@ -7,7 +7,7 @@ const svc = require('./events.service');
 
 const listEvents = async (req, res, next) => {
   try {
-    const result = await svc.listEvents(req.query);
+    const result = await svc.listEvents(req.query, req.user);
     res.json(result);
   } catch (e) {
     next(e);
@@ -25,7 +25,7 @@ const createEvent = async (req, res, next) => {
 
 const updateEvent = async (req, res, next) => {
   try {
-    const result = await svc.updateEvent(req.params.id, req.body);
+    const result = await svc.updateEvent(req.params.id, req.body, req.user);
     res.json(result);
   } catch (e) {
     next(e);
@@ -34,7 +34,7 @@ const updateEvent = async (req, res, next) => {
 
 const cancelEvent = async (req, res, next) => {
   try {
-    const result = await svc.cancelEvent(req.params.id);
+    const result = await svc.cancelEvent(req.params.id, req.user);
     res.json(result);
   } catch (e) {
     next(e);

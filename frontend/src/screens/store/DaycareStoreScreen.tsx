@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View, ScrollView, Pressable, Image } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, ScrollView, Pressable, Image, ActivityIndicator } from "react-native";
 import {
   ShoppingCart,
   MagnifyingGlass,
@@ -17,18 +17,48 @@ import {
   s,
 } from "../../components/design/System";
 import { useChild } from "../../context/ChildContext";
-import { catalog, formatMoney } from "./catalog";
+import { artwork } from "../../theme/assets";
+import { getStoreProducts, StoreProduct } from "../../api/parentApi";
+
+export const formatMoney = (value: number) =>
+  value.toLocaleString("en-US", { maximumFractionDigits: 2 }) + " ETB";
+
 export function DaycareStoreScreen({ navigation }: any) {
   const { cart, cartItemCount, cartTotal, addToCart } = useChild();
+  const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await getStoreProducts();
+        setProducts(data);
+      } catch {
+        setProducts([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
   const inCart = (id: number) =>
     cart.find((item) => item.product.id === id)?.quantity || 0;
-  const filtered = catalog.filter(
+
+  const filtered = products.filter(
     (p) =>
-      (category === "All" || p.category === category) &&
-      p.name.toLowerCase().includes(search.trim().toLowerCase()),
+      p.name.toLowerCase().includes(search.trim().toLowerCase())
   );
+
+  const getProductArtwork = (name: string) => {
+    const lower = name.toLowerCase();
+    if (lower.includes("pencil") || lower.includes("art")) return artwork.pencils;
+    if (lower.includes("book") || lower.includes("exercise")) return artwork.book;
+    if (lower.includes("napkin") || lower.includes("hygiene")) return artwork.napkins;
+    return artwork.uniform;
+  };
+
   return (
     <Page
       header={false}
@@ -77,7 +107,7 @@ export function DaycareStoreScreen({ navigation }: any) {
           label="Go back"
           onPress={() => navigation.goBack()}
         />
-        <Text size={26} weight="bold" style={{ flex: 1 }}>
+        <Text size={26} weight="bold" style={{ flex: 1, marginLeft: 12 }}>
           Daycare Store
         </Text>
         <View>
@@ -88,140 +118,127 @@ export function DaycareStoreScreen({ navigation }: any) {
           />
           {cartItemCount > 0 && (
             <View
-              pointerEvents="none"
               style={{
                 position: "absolute",
-                right: 0,
                 top: 0,
-                borderRadius: 10,
-                minWidth: 19,
-                paddingHorizontal: 4,
-                backgroundColor: "#C32D31",
+                right: 0,
+                backgroundColor: "#D7443E",
+                borderRadius: 9,
+                width: 18,
+                height: 18,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <Text size={10} color="white" style={{ textAlign: "center" }}>
+              <Text size={10} color="white" weight="bold">
                 {cartItemCount}
               </Text>
             </View>
           )}
         </View>
       </View>
-      <Text color="#767E8A" style={{ marginBottom: 20 }}>
-        Everyday essentials for little learners.
-      </Text>
+
       <Field
         icon={MagnifyingGlass}
-        placeholder="Search daycare items…"
+        placeholder="Search supplies, uniforms, books…"
         value={search}
         onChangeText={setSearch}
       />
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0, marginBottom: 26 }}
-        contentContainerStyle={{ gap: 8 }}
-      >
-        {[
-          "All",
-          "Learning Materials",
-          "Hygiene",
-          "Art Supplies",
-          "Clothing",
-        ].map((c) => (
-          <Pressable
-            key={c}
-            accessibilityRole="button"
-            accessibilityState={{ selected: category === c }}
-            aria-pressed={category === c}
-            onPress={() => setCategory(c)}
-            style={{
-              paddingVertical: 10,
-              paddingHorizontal: 15,
-              borderRadius: 22,
-              backgroundColor: category === c ? "#061224" : "#F0EEF0",
-            }}
-          >
-            <Text size={13} color={category === c ? "white" : "#626976"}>
-              {c}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-      <Text size={23} weight="semibold" style={{ marginBottom: 18 }}>
-        {search || category !== "All" ? "Your essentials" : "Frequently Needed"}
+
+      <Text size={22} weight="semibold" style={{ marginVertical: 18 }}>
+        {search ? "Search Results" : "Daycare Products"}
       </Text>
-      <View style={s.grid}>
-        {filtered.map((p) => (
-          <Card
-            key={p.id}
-            style={{ width: "48%", padding: 0, overflow: "hidden" }}
-          >
-            <View style={{ width: "100%", aspectRatio: 1 }}>
-              <Image
-                source={p.image}
-                style={{ width: "100%", height: "100%" }}
-                resizeMode="cover"
-              />
-              <View style={{ position: "absolute", top: 10, left: 8 }}>
-                <Badge
-                  title={
-                    inCart(p.id) >= p.stock
-                      ? "ALL IN CART"
-                      : p.stock <= 3
-                        ? "LOW STOCK"
-                        : "IN STOCK"
-                  }
-                  tone={p.stock <= 3 ? "gold" : "green"}
-                />
-              </View>
-            </View>
-            <View style={{ padding: 13 }}>
-              <Text
-                size={14}
-                weight="semibold"
-                numberOfLines={2}
-                style={{ minHeight: 42 }}
+
+      {loading ? (
+        <View style={{ alignItems: "center", paddingVertical: 40 }}>
+          <ActivityIndicator color="#061224" />
+          <Text size={13} color="#7E828A" style={{ marginTop: 10 }}>Loading products catalog…</Text>
+        </View>
+      ) : filtered.length > 0 ? (
+        <View style={s.grid}>
+          {filtered.map((p) => {
+            const stock = p.stock_quantity ?? 10;
+            const priceNum = Number(p.price);
+            const qtyInCart = inCart(p.id);
+            const isOutOfStock = stock <= 0;
+            const isMaxedOut = qtyInCart >= stock;
+
+            return (
+              <Card
+                key={p.id}
+                style={{ width: "48%", padding: 0, overflow: "hidden", marginBottom: 14 }}
               >
-                {p.name}
-              </Text>
-              <View style={s.between}>
-                <Text size={14} weight="semibold" color="#516A8B">
-                  {formatMoney(p.price)}
-                </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={"Add " + p.name + " to cart"}
-                  disabled={inCart(p.id) >= p.stock}
-                  onPress={() =>
-                    addToCart({
-                      id: p.id,
-                      name: p.name,
-                      price: p.price,
-                      category: p.category,
-                      stock_quantity: p.stock,
-                      in_stock: true,
-                    })
-                  }
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    opacity: inCart(p.id) >= p.stock ? 0.35 : 1,
-                    backgroundColor: "#DCE9FF",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Plus size={21} color="#24476D" />
-                </Pressable>
-              </View>
-            </View>
-          </Card>
-        ))}
-      </View>
-      {!filtered.length && (
-        <Card>
-          <Text color="#747D89">No items found. Try a different search.</Text>
+                <View style={{ width: "100%", aspectRatio: 1 }}>
+                  <Image
+                    source={getProductArtwork(p.name)}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode="cover"
+                  />
+                  <View style={{ position: "absolute", top: 10, left: 8 }}>
+                    <Badge
+                      title={
+                        isOutOfStock
+                          ? "OUT OF STOCK"
+                          : isMaxedOut
+                            ? "ALL IN CART"
+                            : stock <= 3
+                              ? "LOW STOCK"
+                              : "IN STOCK"
+                      }
+                      tone={isOutOfStock ? "red" : stock <= 3 ? "gold" : "green"}
+                    />
+                  </View>
+                </View>
+                <View style={{ padding: 13 }}>
+                  <Text
+                    size={14}
+                    weight="semibold"
+                    numberOfLines={2}
+                    style={{ minHeight: 40 }}
+                  >
+                    {p.name}
+                  </Text>
+                  <View style={[s.between, { marginTop: 8 }]}>
+                    <Text size={14} weight="semibold" color="#516A8B">
+                      {formatMoney(priceNum)}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={"Add " + p.name + " to cart"}
+                      disabled={isOutOfStock || isMaxedOut}
+                      onPress={() =>
+                        addToCart({
+                          id: p.id,
+                          name: p.name,
+                          price: priceNum,
+                          stock_quantity: stock,
+                          in_stock: !isOutOfStock,
+                        })
+                      }
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 19,
+                        opacity: isOutOfStock || isMaxedOut ? 0.35 : 1,
+                        backgroundColor: "#DCE9FF",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Plus size={20} color="#24476D" />
+                    </Pressable>
+                  </View>
+                </View>
+              </Card>
+            );
+          })}
+        </View>
+      ) : (
+        <Card style={{ padding: 24, alignItems: "center" }}>
+          <Text size={15} weight="medium">No products found</Text>
+          <Text size={13} color="#7E828A" style={{ marginTop: 6 }}>
+            {search ? "Try searching with a different term." : "No store items are available at this time."}
+          </Text>
         </Card>
       )}
     </Page>

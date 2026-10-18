@@ -5,7 +5,10 @@
  */
 const db = require('../../config/db');
 
-const getStats = async () => {
+const getStats = async (user) => {
+  const isSuper = user && user.role === 'super_admin';
+  const daycareId = user?.daycare_id || null;
+
   // Run all aggregation queries in parallel
   const [
     enrollmentRes,
@@ -23,32 +26,43 @@ const getStats = async () => {
         COUNT(*) FILTER (WHERE enrollment_status = 'inactive') AS inactive,
         COUNT(*) FILTER (WHERE enrollment_status = 'waitlist') AS waitlist
       FROM children
-    `),
-    // Today's attendance summary
+      WHERE ($1::boolean = TRUE OR daycare_id = $2)
+    `, [isSuper, daycareId]),
+    // Today's attendance summary (LATERAL join taking latest event today for accurate presence counting)
     db.query(`
       SELECT
-        COUNT(DISTINCT c.id) AS total_enrolled,
-        COUNT(DISTINCT a.child_id) FILTER (WHERE a.event_type = 'checkin')  AS checked_in,
-        COUNT(DISTINCT a.child_id) FILTER (WHERE a.event_type = 'checkout') AS checked_out,
-        COUNT(DISTINCT a.child_id) FILTER (WHERE a.event_type = 'absent')   AS absent
+        COUNT(c.id)::integer AS total_enrolled,
+        COUNT(a.event_type) FILTER (WHERE a.event_type = 'checkin')::integer  AS checked_in,
+        COUNT(a.event_type) FILTER (WHERE a.event_type = 'checkout')::integer AS checked_out,
+        COUNT(a.event_type) FILTER (WHERE a.event_type = 'absent')::integer   AS absent
       FROM children c
-      LEFT JOIN attendance a ON a.child_id = c.id AND a.event_time::date = CURRENT_DATE
+      LEFT JOIN LATERAL (
+        SELECT event_type FROM attendance
+        WHERE child_id = c.id
+          AND (event_time AT TIME ZONE 'Africa/Addis_Ababa')::date = (clock_timestamp() AT TIME ZONE 'Africa/Addis_Ababa')::date
+        ORDER BY event_time DESC, id DESC LIMIT 1
+      ) a ON TRUE
       WHERE c.enrollment_status = 'active'
-    `),
+        AND ($1::boolean = TRUE OR c.daycare_id = $2)
+    `, [isSuper, daycareId]),
     // Today's daily reports
     db.query(`
       SELECT
-        COUNT(*) AS submitted_today,
-        (SELECT COUNT(*) FROM children WHERE enrollment_status = 'active') - COUNT(*) AS missing_today
-      FROM daily_reports
-      WHERE report_date = CURRENT_DATE
-    `),
+        COUNT(dr.id)::integer AS submitted_today,
+        (COUNT(c.id) - COUNT(dr.id))::integer AS missing_today
+      FROM children c
+      LEFT JOIN daily_reports dr ON dr.child_id = c.id
+        AND dr.report_date = (clock_timestamp() AT TIME ZONE 'Africa/Addis_Ababa')::date
+      WHERE c.enrollment_status = 'active'
+        AND ($1::boolean = TRUE OR c.daycare_id = $2)
+    `, [isSuper, daycareId]),
     // Unnotified health/incident records
     db.query(`
       SELECT COUNT(*) AS unnotified_health_count
       FROM health_records
       WHERE parent_notified = FALSE
-    `),
+        AND ($1::boolean = TRUE OR daycare_id = $2)
+    `, [isSuper, daycareId]),
     // Pending orders count and revenue
     db.query(`
       SELECT
@@ -56,13 +70,15 @@ const getStats = async () => {
         COUNT(*) FILTER (WHERE order_status = 'confirmed') AS confirmed_orders,
         COALESCE(SUM(total) FILTER (WHERE payment_status = 'paid'), 0) AS total_revenue
       FROM orders
-    `),
-    // Unread messages count (system-wide)
+      WHERE ($1::boolean = TRUE OR daycare_id = $2)
+    `, [isSuper, daycareId]),
+    // Unread messages count
     db.query(`
       SELECT COUNT(*) AS unread_messages
       FROM messages
       WHERE read_at IS NULL
-    `),
+        AND ($1::boolean = TRUE OR daycare_id = $2 OR recipient_id = $3)
+    `, [isSuper, daycareId, user?.id || null]),
   ]);
 
   return {

@@ -7,10 +7,11 @@ const TOKEN_KEY = 'ankelba_auth_token';
 // In development: Android emulator uses 10.0.2.2, Web uses localhost, real device uses LAN IP
 const getBaseUrl = () => {
   if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:5000/api';
+  if (Platform.OS === 'web') {
+    return 'http://localhost:5000/api';
   }
-  return 'http://localhost:5000/api';
+  // Physical mobile phone via Expo Go (LAN address)
+  return 'http://192.168.8.114:5000/api';
 };
 
 export const apiClient = axios.create({
@@ -38,6 +39,7 @@ export const tokenStorage = {
     try {
       if (Platform.OS === 'web') {
         localStorage.setItem(TOKEN_KEY, token);
+        localStorage.setItem('ankelba_portal_token', token);
       } else {
         await SecureStore.setItemAsync(TOKEN_KEY, token);
       }
@@ -50,6 +52,7 @@ export const tokenStorage = {
     try {
       if (Platform.OS === 'web') {
         localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem('ankelba_portal_token');
       } else {
         await SecureStore.deleteItemAsync(TOKEN_KEY);
       }

@@ -10,12 +10,18 @@ const db = require('../../config/db');
  * List products catalog (Architecture Plan §6.2 Query 5).
  * Uses idx_prod_available partial index.
  */
-const listProducts = async (query = {}) => {
+/**
+ * List products catalog (Architecture Plan §6.2 Query 5).
+ * Uses idx_prod_available partial index.
+ */
+const listProducts = async (query = {}, user) => {
   const categoryId = query.category_id ? parseInt(query.category_id, 10) : null;
   const availableOnly = query.available_only !== 'false';
+  const isSuper = user && user.role === 'super_admin';
+  const daycareId = user?.daycare_id || null;
 
   let sql = `
-    SELECT p.id, p.name, p.description, p.price, p.stock_qty, p.available, p.category_id, p.updated_at,
+    SELECT p.id, p.name, p.description, p.price, p.stock_qty, p.available, p.category_id, p.updated_at, p.daycare_id,
            pc.name AS category_name
     FROM products p
     LEFT JOIN product_categories pc ON pc.id = p.category_id
@@ -30,6 +36,10 @@ const listProducts = async (query = {}) => {
     params.push(categoryId);
     sql += ` AND p.category_id = $${params.length}`;
   }
+  if (!isSuper) {
+    params.push(daycareId);
+    sql += ` AND (p.daycare_id = $${params.length})`;
+  }
 
   sql += ` ORDER BY p.name ASC`;
 
@@ -41,9 +51,10 @@ const listProducts = async (query = {}) => {
  * Create a new product in the store (Admin only).
  */
 const createProduct = async (body, user) => {
+  const daycareId = user.role === 'super_admin' ? (body.daycare_id || null) : user.daycare_id;
   const { rows } = await db.query(
-    `INSERT INTO products (name, description, price, category_id, stock_qty, available, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO products (name, description, price, category_id, stock_qty, available, created_by, daycare_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
     [
       body.name,
@@ -53,6 +64,7 @@ const createProduct = async (body, user) => {
       body.stock_qty ?? 0,
       body.available ?? true,
       user.id,
+      daycareId,
     ]
   );
   return rows[0];
@@ -61,8 +73,24 @@ const createProduct = async (body, user) => {
 /**
  * Update product details or stock (Admin only).
  */
-const updateProduct = async (productIdParam, body) => {
+const updateProduct = async (productIdParam, body, user) => {
   const productId = parseInt(productIdParam, 10);
+
+  const { rows: existingRows } = await db.query(
+    `SELECT id, daycare_id FROM products WHERE id = $1`,
+    [productId]
+  );
+  if (existingRows.length === 0) {
+    const err = new Error('Product not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const existing = existingRows[0];
+  if (!user?.daycare_id || existing.daycare_id !== user.daycare_id) {
+    const err = new Error('Product not found');
+    err.statusCode = 404;
+    throw err;
+  }
 
   const fields = [];
   const vals = [];
@@ -89,12 +117,6 @@ const updateProduct = async (productIdParam, body) => {
     vals
   );
 
-  if (rows.length === 0) {
-    const err = new Error('Product not found');
-    err.statusCode = 404;
-    throw err;
-  }
-
   return rows[0];
 };
 
@@ -115,7 +137,7 @@ const placeOrder = async (body, user) => {
       const qty = parseInt(item.quantity, 10);
 
       const { rows: prodRows } = await client.query(
-        `SELECT id, name, price, stock_qty, available FROM products WHERE id = $1 FOR UPDATE`,
+        `SELECT id, name, price, stock_qty, available, daycare_id FROM products WHERE id = $1 FOR UPDATE`,
         [prodId]
       );
 
@@ -126,6 +148,12 @@ const placeOrder = async (body, user) => {
       }
 
       const prod = prodRows[0];
+      if (!user.daycare_id || prod.daycare_id !== user.daycare_id) {
+        const err = new Error(`Product ID ${prodId} is not available in your daycare`);
+        err.statusCode = 404;
+        throw err;
+      }
+
       if (prod.stock_qty < qty) {
         const err = new Error(`Insufficient stock for "${prod.name}". Available: ${prod.stock_qty}, Requested: ${qty}`);
         err.statusCode = 422;
@@ -142,9 +170,9 @@ const placeOrder = async (body, user) => {
       // Low-stock auto-alert (FR-ECM-06): Alert admins when stock drops <= 5
       if (newStock <= 5) {
         await client.query(
-          `INSERT INTO alerts (author_id, title, urgency, recipient_scope)
-           VALUES ($1, $2, 'high', 'all')`,
-          [user.id, `Low stock alert: "${prod.name}" has only ${newStock} units left`]
+          `INSERT INTO alerts (author_id, title, urgency, recipient_scope, daycare_id)
+           VALUES ($1, $2, 'high', 'all', $3)`,
+          [user.id, `Low stock alert: "${prod.name}" has only ${newStock} units left`, user.daycare_id || prod.daycare_id || null]
         );
       }
 
@@ -159,12 +187,13 @@ const placeOrder = async (body, user) => {
       });
     }
 
-    // 2. Create order
+    // 2. Create order stamped with user's daycare_id
+    const daycareId = user.role === 'super_admin' ? null : user.daycare_id;
     const { rows: orderRows } = await client.query(
-      `INSERT INTO orders (parent_id, total, order_status, payment_status)
-       VALUES ($1, $2, 'placed', 'unpaid')
+      `INSERT INTO orders (parent_id, total, order_status, payment_status, daycare_id)
+       VALUES ($1, $2, 'placed', 'unpaid', $3)
        RETURNING *`,
-      [user.id, total]
+      [user.id, total, daycareId]
     );
 
     const order = orderRows[0];
@@ -209,12 +238,16 @@ const placeOrder = async (body, user) => {
  * List parent's orders.
  */
 const listMyOrders = async (user) => {
+  const isSuper = user.role === 'super_admin';
+  const daycareId = user.daycare_id || null;
+
   const { rows: orders } = await db.query(
-    `SELECT o.id, o.total, o.order_status, o.payment_status, o.created_at
+    `SELECT o.id, o.total, o.order_status, o.payment_status, o.created_at, o.daycare_id
      FROM orders o
      WHERE o.parent_id = $1
+       AND ($2::boolean = TRUE OR o.daycare_id = $3)
      ORDER BY o.created_at DESC`,
-    [user.id]
+    [user.id, isSuper, daycareId]
   );
 
   for (const order of orders) {
@@ -234,12 +267,17 @@ const listMyOrders = async (user) => {
 /**
  * List all orders for administrative view.
  */
-const listAllOrders = async (query = {}) => {
+const listAllOrders = async (query = {}, user) => {
+  const isSuper = user && user.role === 'super_admin';
+  const daycareId = user?.daycare_id || null;
+
   const { rows: orders } = await db.query(
-    `SELECT o.id, o.parent_id, u.name AS parent_name, o.total, o.order_status, o.payment_status, o.created_at
+    `SELECT o.id, o.parent_id, u.name AS parent_name, o.total, o.order_status, o.payment_status, o.created_at, o.daycare_id
      FROM orders o
      JOIN users u ON u.id = o.parent_id
-     ORDER BY o.created_at DESC`
+     WHERE ($1::boolean = TRUE OR o.daycare_id = $2)
+     ORDER BY o.created_at DESC`,
+    [isSuper, daycareId]
   );
 
   return { data: orders };
@@ -248,12 +286,28 @@ const listAllOrders = async (query = {}) => {
 /**
  * Update order and payment status (Admin only).
  */
-const updateOrderStatus = async (orderIdParam, body) => {
+const updateOrderStatus = async (orderIdParam, body, user) => {
   const orderId = parseInt(orderIdParam, 10);
 
   const client = await db.connect();
   try {
     await client.query('BEGIN');
+
+    const { rows: existingRows } = await client.query(
+      `SELECT id, daycare_id FROM orders WHERE id = $1 FOR UPDATE`,
+      [orderId]
+    );
+    if (existingRows.length === 0) {
+      const err = new Error('Order not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    const existing = existingRows[0];
+    if (!user?.daycare_id || existing.daycare_id !== user.daycare_id) {
+      const err = new Error('Order not found');
+      err.statusCode = 404;
+      throw err;
+    }
 
     const fields = [];
     const vals = [];
@@ -275,12 +329,6 @@ const updateOrderStatus = async (orderIdParam, body) => {
       `UPDATE orders SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
       vals
     );
-
-    if (rows.length === 0) {
-      const err = new Error('Order not found');
-      err.statusCode = 404;
-      throw err;
-    }
 
     const order = rows[0];
 

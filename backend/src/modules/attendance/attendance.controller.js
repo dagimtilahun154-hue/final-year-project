@@ -25,7 +25,7 @@ const getChildAttendance = async (req, res, next) => {
 
 const listAttendance = async (req, res, next) => {
   try {
-    const result = await svc.listAttendance(req.query);
+    const result = await svc.listAttendance(req.query, req.user);
     res.json(result);
   } catch (e) {
     next(e);

@@ -25,7 +25,7 @@ const verify = async (req, res, next) => {
 
 const getGuardianBiometric = async (req, res, next) => {
   try {
-    const result = await svc.getGuardianBiometric(req.params.id);
+    const result = await svc.getGuardianBiometric(req.params.id, req.user);
     res.json(result);
   } catch (e) {
     next(e);

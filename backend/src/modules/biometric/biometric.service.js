@@ -13,10 +13,16 @@ const { logAudit } = require('../audit/audit.service');
  */
 const enroll = async (body, user) => {
   const linkId = parseInt(body.guardian_link_id, 10);
+  const isSuperAdmin = user && user.role === 'super_admin';
+  const daycareId = user?.daycare_id || null;
 
-  // 1. Verify guardian link exists
+  // 1. Verify guardian link exists with child tenant and guardian user status
   const { rows: linkRows } = await db.query(
-    `SELECT id, user_id, child_id FROM guardian_links WHERE id = $1 AND pickup_authorized=TRUE`,
+    `SELECT gl.id, gl.user_id, gl.child_id, gl.pickup_authorized, c.daycare_id, u.status AS user_status
+     FROM guardian_links gl
+     JOIN children c ON c.id = gl.child_id
+     JOIN users u ON u.id = gl.user_id
+     WHERE gl.id = $1`,
     [linkId]
   );
 
@@ -28,6 +34,24 @@ const enroll = async (body, user) => {
 
   const link = linkRows[0];
 
+  if (!isSuperAdmin && daycareId && link.daycare_id !== daycareId) {
+    const err = new Error('Guardian link not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (!link.pickup_authorized) {
+    const err = new Error('Guardian is not authorized for child pickup');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  if (link.user_status !== 'active') {
+    const err = new Error('Guardian user account is not active');
+    err.statusCode = 400;
+    throw err;
+  }
+
   // 2. Upsert biometric reference
   const { rows } = await db.query(
     `INSERT INTO biometric_references (guardian_link_id, user_id, reference_data, enrolled_by, active)
@@ -38,7 +62,11 @@ const enroll = async (body, user) => {
     [linkId, link.user_id, body.reference_data, user.id]
   );
 
-  await logAudit(user.id, 'BIOMETRIC_ENROLLED', 'biometric_references', rows[0].id, { guardian_link_id: linkId, user_id: link.user_id });
+  await logAudit(user.id, 'BIOMETRIC_ENROLLED', 'biometric_references', rows[0].id, {
+    guardian_link_id: linkId,
+    user_id: link.user_id,
+    daycare_id: link.daycare_id,
+  });
 
   return rows[0];
 };
@@ -54,14 +82,18 @@ const verify = async () => {
 /**
  * Get active biometric reference for a guardian link.
  */
-const getGuardianBiometric = async (guardianLinkIdParam) => {
+const getGuardianBiometric = async (guardianLinkIdParam, user = null) => {
   const linkId = parseInt(guardianLinkIdParam, 10);
+  const isSuperAdmin = user && user.role === 'super_admin';
+  const daycareId = user?.daycare_id || null;
 
   const { rows } = await db.query(
     `SELECT br.id, br.guardian_link_id, br.user_id, br.enrolled_at, br.active,
-            u.name AS guardian_name
+            u.name AS guardian_name, c.daycare_id
      FROM biometric_references br
      JOIN users u ON u.id = br.user_id
+     JOIN guardian_links gl ON gl.id = br.guardian_link_id
+     JOIN children c ON c.id = gl.child_id
      WHERE br.guardian_link_id = $1 AND br.active = TRUE`,
     [linkId]
   );
@@ -72,7 +104,14 @@ const getGuardianBiometric = async (guardianLinkIdParam) => {
     throw err;
   }
 
-  return rows[0];
+  const bio = rows[0];
+  if (!isSuperAdmin && daycareId && bio.daycare_id !== daycareId) {
+    const err = new Error('No active biometric reference enrolled for this guardian link');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  return bio;
 };
 
 module.exports = {

@@ -50,12 +50,16 @@ export const childrenService = {
         care_instructions: [
           {
             id: 10,
+            category: 'allergy',
+            instruction_text: 'Mild Peanut Allergy — Keep epinephrine auto-injector in cubby',
             instruction_type: 'allergy',
             description: 'Mild Peanut Allergy — Keep epinephrine auto-injector in cubby',
             created_at: new Date().toISOString(),
           },
           {
             id: 11,
+            category: 'general',
+            instruction_text: 'Prefers quiet blanket for afternoon nap around 01:00 PM',
             instruction_type: 'general',
             description: 'Prefers quiet blanket for afternoon nap around 01:00 PM',
             created_at: new Date().toISOString(),

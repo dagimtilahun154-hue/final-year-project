@@ -41,39 +41,14 @@ export const ChildProvider: React.FC<{ children: ReactNode }> = ({
   const [selectedChild, setSelectedChild] = useState<ChildSummary | null>(
     DEFAULT_CHILD,
   );
-  const [cart, setCart] = useState<CartItem[]>([
-    // Pre-populated initial items matching Figma mock ("2 items, 300 ETB" / "Color Pencils + Exercise Book")
-    {
-      product: {
-        id: 1,
-        category_id: 2,
-        name: "Color Pencils",
-        description: "Set of 12 vibrant colored pencils for art and learning",
-        price: 180,
-        stock_quantity: 40,
-        is_active: true,
-      },
-      quantity: 1,
-    },
-    {
-      product: {
-        id: 2,
-        category_id: 2,
-        name: "Exercise Book",
-        description:
-          "Standard lined workbook for daycare handwriting and drawings",
-        price: 120,
-        stock_quantity: 60,
-        is_active: true,
-      },
-      quantity: 1,
-    },
-  ]);
+  const [cart, setCart] = useState<CartItem[]>([]);
 
   useEffect(() => {
     if (user?.linked_children && user.linked_children.length > 0) {
       setSelectedChild(user.linked_children[0]);
-    } else if (!selectedChild) {
+    } else if (user) {
+      setSelectedChild(null);
+    } else {
       setSelectedChild(DEFAULT_CHILD);
     }
   }, [user]);

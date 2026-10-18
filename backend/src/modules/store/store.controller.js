@@ -7,7 +7,7 @@ const svc = require('./store.service');
 
 const listProducts = async (req, res, next) => {
   try {
-    const result = await svc.listProducts(req.query);
+    const result = await svc.listProducts(req.query, req.user);
     res.json(result);
   } catch (e) {
     next(e);
@@ -25,7 +25,7 @@ const createProduct = async (req, res, next) => {
 
 const updateProduct = async (req, res, next) => {
   try {
-    const result = await svc.updateProduct(req.params.id, req.body);
+    const result = await svc.updateProduct(req.params.id, req.body, req.user);
     res.json(result);
   } catch (e) {
     next(e);
@@ -52,7 +52,7 @@ const listMyOrders = async (req, res, next) => {
 
 const listAllOrders = async (req, res, next) => {
   try {
-    const result = await svc.listAllOrders(req.query);
+    const result = await svc.listAllOrders(req.query, req.user);
     res.json(result);
   } catch (e) {
     next(e);
@@ -61,7 +61,7 @@ const listAllOrders = async (req, res, next) => {
 
 const updateOrderStatus = async (req, res, next) => {
   try {
-    const result = await svc.updateOrderStatus(req.params.id, req.body);
+    const result = await svc.updateOrderStatus(req.params.id, req.body, req.user);
     res.json(result);
   } catch (e) {
     next(e);

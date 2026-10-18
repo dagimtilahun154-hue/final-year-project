@@ -25,7 +25,7 @@ const getChildHealth = async (req, res, next) => {
 
 const markNotified = async (req, res, next) => {
   try {
-    const result = await svc.markNotified(req.params.id);
+    const result = await svc.markNotified(req.params.id, req.user);
     res.json(result);
   } catch (e) {
     next(e);

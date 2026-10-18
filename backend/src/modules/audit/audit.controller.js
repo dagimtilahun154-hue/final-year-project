@@ -7,7 +7,7 @@ const svc = require('./audit.service');
 
 const listAuditLogs = async (req, res, next) => {
   try {
-    const result = await svc.listAuditLogs(req.query);
+    const result = await svc.listAuditLogs(req.query, req.user);
     res.json(result);
   } catch (e) {
     next(e);

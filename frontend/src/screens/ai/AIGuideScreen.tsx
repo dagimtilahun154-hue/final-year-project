@@ -22,6 +22,7 @@ import {
 } from "../../components/design/System";
 import { artwork } from "../../theme/assets";
 import { useAuth } from "../../context/AuthContext";
+import { useChild } from "../../context/ChildContext";
 import { apiClient } from "../../api/client";
 const topics = [
   {
@@ -56,7 +57,8 @@ const topics = [
   },
 ];
 export function AIGuideScreen({ navigation }: any) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const { selectedChild } = useChild();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -81,6 +83,7 @@ export function AIGuideScreen({ navigation }: any) {
       } else {
         const res = await apiClient.post("/ai/guide", {
           question: question.trim(),
+          child_id: selectedChild?.id,
         });
         setMessages((m) => [...m, { mine: false, text: res.data.answer }]);
       }
@@ -146,7 +149,7 @@ export function AIGuideScreen({ navigation }: any) {
         <View style={s.row}>
           <CaringBloom />
           <Text size={17} style={{ flex: 1 }}>
-            Hi Hana 👋{"\n"}How can I help you today?
+            Hi {user?.name ? user.name.split(" ")[0] : "Parent"},{"\n"}How can I help you today?
           </Text>
         </View>
         <Text size={14} color="#6E7580" style={{ marginTop: 22 }}>
@@ -155,13 +158,13 @@ export function AIGuideScreen({ navigation }: any) {
       </Card>
       <Card style={{ marginTop: 20, padding: 16 }}>
         <View style={s.row}>
-          <Avatar source={artwork.child} />
-          <View>
+          <Avatar source={artwork.child} initials={selectedChild?.full_name ? selectedChild.full_name.slice(0, 2).toUpperCase() : "CH"} />
+          <View style={{ marginLeft: 10 }}>
             <Text size={10} color="#818690" style={{ letterSpacing: 1 }}>
               GUIDANCE FOR
             </Text>
             <Text size={17} weight="medium">
-              Liya · 4 years
+              {selectedChild?.full_name || "Enrolled Child"} · {selectedChild?.group_name || "Early Learning"}
             </Text>
           </View>
         </View>

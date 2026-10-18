@@ -88,7 +88,35 @@ psql -U postgres -c "CREATE DATABASE ankelba_dev;"
 npx knex migrate:latest --knexfile src/config/knexfile.js
 ```
 
-This creates all **28 tables** + **50+ indexes** in dependency order.
+This applies the schema migrations in dependency order. Migration
+`012a_profile_complete_prerequisite.js` provides the onboarding column required by
+013, so fresh databases do not need the old manual `migrate_profile_complete.js`
+script. Existing onboarding values are preserved.
+
+To verify fresh setup, legacy upgrades and targeted rollback in separate,
+automatically removed local test databases:
+
+```bash
+npm run test:foundation
+```
+
+The test account needs permission to create databases. See the
+[setup repair notes](../docs/FOUNDATION_BATCH_2_SETUP.md) for the verification
+boundary and the compatibility migration's intentionally non-destructive rollback.
+
+The next backend authentication checkpoint can be verified separately with
+`npm run test:daycare-auth`. Its development/test preview is disabled by default;
+the current frontend and login stay unchanged until a coordinated update. See
+[authentication checkpoint 1](../docs/AUTH_CHECKPOINT_1.md) for its contract,
+verification results and activation boundary.
+
+[Authentication checkpoint 2](../docs/AUTH_CHECKPOINT_2.md) extends that preview
+with daycare-scoped password recovery through an encrypted local test inbox,
+mandatory administrator/owner MFA and separate platform authentication. It also
+documents encryption configuration, `npm run auth:inbox`, the explicit first-owner
+bootstrap command and `npm run test:auth-security`. This remains default-off;
+the current frontend and configured application database have not been activated
+or migrated by these checkpoints.
 
 ### 5. Seed test data
 

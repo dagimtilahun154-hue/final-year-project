@@ -80,6 +80,15 @@ const listMealPlans = async (req, res, next) => {
   }
 };
 
+const listContacts = async (req, res, next) => {
+  try {
+    const result = await svc.listContacts(req.user);
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+};
+
 module.exports = {
   createAnnouncement,
   listAnnouncements,
@@ -89,4 +98,6 @@ module.exports = {
   markMessageRead,
   createAlert,
   listAlerts,
+  listContacts,
 };
+

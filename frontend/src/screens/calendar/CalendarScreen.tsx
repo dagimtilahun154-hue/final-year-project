@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View, Pressable } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Pressable, ActivityIndicator } from "react-native";
 import {
   CaretLeft,
   CaretRight,
@@ -16,87 +16,64 @@ import {
   IconButton,
   Section,
 } from "../../components/design/System";
-export const events = [
-  {
-    id: 1,
-    title: "Parent Meeting",
-    day: 28,
-    month: 7,
-    year: 2026,
-    time: "3:00 PM – 4:00 PM",
-    place: "Daycare Main Room",
-    category: "Meeting",
-    color: "#E2F5F1",
-    ink: "#298C81",
-    description:
-      "A short meeting to discuss your child’s progress, upcoming activities, and daycare updates.",
-  },
-  {
-    id: 2,
-    title: "Family Activity Day",
-    day: 5,
-    month: 8,
-    year: 2026,
-    time: "10:00 AM",
-    place: "Outdoor Play Area",
-    category: "Activity",
-    color: "#EAF6E6",
-    ink: "#5A9751",
-    description:
-      "Join us for a morning of games, creativity, and time together.",
-  },
-  {
-    id: 3,
-    title: "Public Holiday",
-    day: 7,
-    month: 8,
-    year: 2026,
-    time: "All day",
-    place: "Daycare closed",
-    category: "Holiday",
-    color: "#FDEBEC",
-    ink: "#C66470",
-    description:
-      "The daycare will be closed. We look forward to seeing everyone when we reopen.",
-  },
-  {
-    id: 4,
-    title: "Art & Creativity Day",
-    day: 9,
-    month: 8,
-    year: 2026,
-    time: "11:00 AM",
-    place: "Activity Room",
-    category: "Activity",
-    color: "#FCECF2",
-    ink: "#C57495",
-    description: "A colorful day of painting, crafts, and imagination.",
-  },
-];
+import { getDaycareEvents, CalendarEvent } from "../../api/parentApi";
+
 export function CalendarScreen({ navigation }: any) {
-  const [month, setMonth] = useState(7);
-  const [year, setYear] = useState(2026);
+  const [eventsList, setEventsList] = useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const today = new Date();
+  const [month, setMonth] = useState(today.getMonth());
+  const [year, setYear] = useState(today.getFullYear());
   const [day, setDay] = useState<number | null>(null);
   const [filter, setFilter] = useState("All");
-  const first = new Date(year, month, 1).getDay(),
-    count = new Date(year, month + 1, 0).getDate();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await getDaycareEvents(true);
+        setEventsList(data);
+      } catch {
+        setEventsList([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const first = new Date(year, month, 1).getDay();
+  const count = new Date(year, month + 1, 0).getDate();
+
   const change = (delta: number) => {
     const date = new Date(year, month + delta, 1);
     setMonth(date.getMonth());
     setYear(date.getFullYear());
     setDay(null);
   };
-  const upcoming = events.filter(
-    (e) =>
-      (filter === "All" || e.category === filter) &&
-      (day
-        ? e.day === day && e.month === month && e.year === year
-        : new Date(e.year, e.month, e.day) >= new Date(year, month, 1)),
-  );
+
+  const parsedEvents = eventsList.map((e) => {
+    const d = new Date(e.event_date);
+    return {
+      ...e,
+      day: d.getDate(),
+      month: d.getMonth(),
+      year: d.getFullYear(),
+    };
+  });
+
+  const upcoming = parsedEvents.filter((e) => {
+    const matchesFilter = filter === "All" || e.event_type.toLowerCase().includes(filter.toLowerCase());
+    if (!matchesFilter) return false;
+    if (day !== null) {
+      return e.day === day && e.month === month && e.year === year;
+    }
+    return e.month === month && e.year === year;
+  });
+
   return (
-    <Page title="Calendar" subtitle="Little moments to look forward to.">
-      <View style={[s.row, { marginBottom: 20, flexWrap: "wrap" }]}>
-        {["All", "Meeting", "Activity", "Holiday"].map((f) => (
+    <Page title="Calendar" subtitle="Daycare activities and schedule.">
+      <View style={[s.row, { marginBottom: 20, flexWrap: "wrap", gap: 8 }]}>
+        {["All", "Special", "Meeting", "Program"].map((f) => (
           <Pressable
             key={f}
             accessibilityRole="button"
@@ -110,17 +87,13 @@ export function CalendarScreen({ navigation }: any) {
             }}
           >
             <Text size={12} color={filter === f ? "white" : "#575D68"}>
-              {f === "Meeting"
-                ? "Meetings"
-                : f === "Activity"
-                  ? "Activities"
-                  : f === "Holiday"
-                    ? "Holidays"
-                    : f}
+              {f}
             </Text>
           </Pressable>
         ))}
       </View>
+
+      {/* Month Navigator */}
       <Card style={{ padding: 14 }}>
         <View style={s.between}>
           <IconButton
@@ -140,6 +113,7 @@ export function CalendarScreen({ navigation }: any) {
             onPress={() => change(1)}
           />
         </View>
+
         <View style={{ flexDirection: "row", marginVertical: 12 }}>
           {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((d) => (
             <Text
@@ -152,129 +126,100 @@ export function CalendarScreen({ navigation }: any) {
             </Text>
           ))}
         </View>
+
+        {/* Calendar Grid */}
         <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
           {Array.from({ length: first + count }, (_, i) => {
             const n = i - first + 1;
+            const hasEvent = parsedEvents.some(
+              (e) => e.day === n && e.month === month && e.year === year
+            );
+            const isSelected = day === n;
+
             return (
               <View
                 key={i}
                 style={{
                   width: "14.285%",
-                  height: 43,
-                  alignItems: "center",
+                  aspectRatio: 1,
+                  padding: 2,
                   justifyContent: "center",
+                  alignItems: "center",
                 }}
               >
-                {n > 0 && (
+                {n > 0 ? (
                   <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      "Select " + new Date(year, month, n).toDateString()
-                    }
-                    accessibilityState={{ selected: day === n }}
-                    aria-pressed={day === n}
                     onPress={() => setDay(day === n ? null : n)}
                     style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 17,
-                      backgroundColor: day === n ? "#061224" : "transparent",
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
                       alignItems: "center",
                       justifyContent: "center",
+                      backgroundColor: isSelected
+                        ? "#061224"
+                        : hasEvent
+                          ? "#FFE485"
+                          : "transparent",
                     }}
                   >
-                    <Text size={13} color={day === n ? "white" : "#555B66"}>
+                    <Text
+                      size={13}
+                      color={isSelected ? "white" : "#1B2E24"}
+                      weight={hasEvent ? "bold" : "regular"}
+                    >
                       {n}
                     </Text>
-                    {events.some(
-                      (e) =>
-                        e.month === month && e.year === year && e.day === n,
-                    ) && (
-                      <View
-                        style={{
-                          width: 4,
-                          height: 4,
-                          borderRadius: 2,
-                          backgroundColor: "#ECC455",
-                          position: "absolute",
-                          bottom: 2,
-                        }}
-                      />
-                    )}
                   </Pressable>
-                )}
+                ) : null}
               </View>
             );
           })}
         </View>
       </Card>
-      <Section
-        title={day ? "Events on this day" : "Upcoming Events"}
-        action={day ? "Show all" : undefined}
-        onPress={() => setDay(null)}
-      />
-      {!upcoming.length && (
-        <Card>
-          <Text color="#757D87">
-            {day
-              ? "No events on this day."
-              : "No upcoming events for this selection."}
+
+      <Section title={day ? `Events on Day ${day}` : "Events this Month"} />
+
+      {loading ? (
+        <View style={{ alignItems: "center", paddingVertical: 32 }}>
+          <ActivityIndicator color="#061224" />
+          <Text size={13} color="#7E828A" style={{ marginTop: 8 }}>Loading events…</Text>
+        </View>
+      ) : upcoming.length > 0 ? (
+        upcoming.map((e) => (
+          <Card
+            key={e.id}
+            onPress={() => navigation.navigate("EventDetail", { eventId: e.id, eventData: e })}
+            style={{ marginBottom: 12, padding: 16 }}
+          >
+            <View style={s.between}>
+              <Text size={16} weight="semibold" style={{ flex: 1 }}>
+                {e.title}
+              </Text>
+              <Badge title={e.event_type.replace("_", " ")} tone="neutral" />
+            </View>
+            <Text size={13} color="#7E828A" style={{ marginTop: 6 }}>
+              {new Date(e.event_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+              {e.event_time ? ` · ${e.event_time}` : ""}
+            </Text>
+            {e.description ? (
+              <Text size={13} color="#4A5568" style={{ marginTop: 6 }} numberOfLines={2}>
+                {e.description}
+              </Text>
+            ) : null}
+          </Card>
+        ))
+      ) : (
+        <Card style={{ padding: 24, alignItems: "center" }}>
+          <CalendarBlank size={32} color="#8A909B" />
+          <Text size={15} weight="medium" style={{ marginTop: 8 }}>
+            No events scheduled
+          </Text>
+          <Text size={13} color="#7E828A" style={{ marginTop: 4 }}>
+            Check back later for newly scheduled daycare programs.
           </Text>
         </Card>
       )}
-      {upcoming.map((e) => (
-        <Card
-          key={e.id}
-          style={{
-            marginBottom: 15,
-            borderTopWidth: 3,
-            borderTopColor: e.ink,
-            padding: 18,
-          }}
-        >
-          <View style={[s.row, { alignItems: "flex-start" }]}>
-            <View
-              style={{
-                backgroundColor: e.color,
-                padding: 12,
-                borderRadius: 12,
-                alignItems: "center",
-                minWidth: 52,
-              }}
-            >
-              <Text size={10} color={e.ink}>
-                {new Date(e.year, e.month, e.day)
-                  .toLocaleDateString("en-US", { month: "short" })
-                  .toUpperCase()}
-              </Text>
-              <Text size={21} color={e.ink}>
-                {e.day}
-              </Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text size={17} weight="medium">
-                {e.title}
-              </Text>
-              <Text size={12} color="#757C88" style={{ marginTop: 7 }}>
-                {e.time} · {e.place}
-              </Text>
-              <Button
-                title="View Details"
-                onPress={() =>
-                  navigation.navigate("EventDetail", { eventId: e.id })
-                }
-                style={{
-                  alignSelf: "flex-end",
-                  minHeight: 36,
-                  paddingVertical: 8,
-                  paddingHorizontal: 16,
-                  marginTop: 16,
-                }}
-              />
-            </View>
-          </View>
-        </Card>
-      ))}
     </Page>
   );
 }

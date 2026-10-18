@@ -49,10 +49,21 @@ const getGuidance = async (body, user) => {
       if (rows.length > 0) {
         const c = rows[0];
         const ageYears = Math.floor((new Date() - new Date(c.dob)) / (1000 * 60 * 60 * 24 * 365.25));
+
+        // Retrieve allergies and dietary restrictions from child's care profile (SRS: FR-AI-04, FR-CH-03)
+        const careRes = await db.query(
+          `SELECT category, instruction_text FROM care_instructions WHERE child_id = $1 AND category IN ('allergy', 'dietary')`,
+          [childId]
+        );
+        const allergies = careRes.rows.filter(r => r.category === 'allergy').map(r => r.instruction_text);
+        const dietary = careRes.rows.filter(r => r.category === 'dietary').map(r => r.instruction_text);
+
         childContext = {
           name: c.full_name.split(' ')[0],
           age_years: ageYears,
           group_name: c.group_name,
+          allergies,
+          dietary,
         };
       }
     }
@@ -66,7 +77,11 @@ const getGuidance = async (body, user) => {
   if (questionText.includes('routine') || questionText.includes('morning') || questionText.includes('prep')) {
     answer = `For smooth morning routines with ${nameStr}${ageStr}, set out clothes the night before, use visual activity cards, and allow 15 minutes of buffer time before daycare drop-off.`;
   } else if (questionText.includes('meal') || questionText.includes('food') || questionText.includes('snack')) {
-    answer = `Healthy daycare snack ideas for ${nameStr} include sliced banana with oat porridge, steamed carrots with hummus, or diced apple pieces paired with plain yogurt.`;
+    let allergyWarning = '';
+    if (childContext && childContext.allergies && childContext.allergies.length > 0) {
+      allergyWarning = ` (Allergy Notice: child has recorded allergies to: ${childContext.allergies.join(', ')}. Avoid these ingredients strictly). `;
+    }
+    answer = `Healthy daycare snack ideas for ${nameStr}${ageStr} include sliced banana with oat porridge, steamed carrots with hummus, or diced apple pieces.${allergyWarning}Always ensure snacks align with daycare center food guidelines.`;
   } else if (questionText.includes('activity') || questionText.includes('play') || questionText.includes('learn')) {
     answer = `Engaging activities for ${nameStr}${ageStr} include sensory sorting games, building block towers, finger painting with non-toxic paints, and interactive storybook reading.`;
   } else {

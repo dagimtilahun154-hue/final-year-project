@@ -1,6 +1,7 @@
 # Environment — NEVER commit secrets (NFR-SEC-05)
 .env
 .env.local
+.local/
 
 # Dependencies
 node_modules/

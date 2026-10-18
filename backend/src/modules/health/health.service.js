@@ -6,6 +6,7 @@
  */
 const db = require('../../config/db');
 const { isParentLinked } = require('../children/children.service');
+const { logAudit } = require('../audit/audit.service');
 
 const MEDICAL_DISCLAIMER = 'Reporting functionality only. This record does not constitute medical diagnosis or advice.';
 
@@ -15,9 +16,9 @@ const MEDICAL_DISCLAIMER = 'Reporting functionality only. This record does not c
 const createRecord = async (body, user) => {
   const childId = parseInt(body.child_id, 10);
 
-  // 1. Verify child exists & caregiver assignment check
+  // 1. Verify child exists & belongs to daycare
   const { rows: childRows } = await db.query(
-    `SELECT id, caregiver_id FROM children WHERE id = $1`,
+    `SELECT id, caregiver_id, daycare_id FROM children WHERE id = $1`,
     [childId]
   );
   if (childRows.length === 0) {
@@ -27,16 +28,22 @@ const createRecord = async (body, user) => {
   }
 
   const child = childRows[0];
+  if (user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+    const err = new Error('Child profile not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
   if (user.role === 'caregiver' && child.caregiver_id !== user.id) {
     const err = new Error('Access denied: You are not assigned to this child');
     err.statusCode = 403;
     throw err;
   }
 
-  // 2. Insert record
+  // 2. Insert record stamped with child's daycare_id
   const { rows } = await db.query(
-    `INSERT INTO health_records (child_id, recorded_by, record_type, description, severity, parent_notified)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO health_records (child_id, recorded_by, record_type, description, severity, parent_notified, daycare_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
     [
       childId,
@@ -45,7 +52,18 @@ const createRecord = async (body, user) => {
       body.description,
       body.severity || null,
       body.parent_notified ?? false,
+      child.daycare_id,
     ]
+  );
+
+  await logAudit(
+    user.id,
+    'HEALTH_RECORD_CREATED',
+    'health_records',
+    rows[0].id,
+    { child_id: childId, record_type: body.record_type, severity: body.severity },
+    null,
+    child.daycare_id
   );
 
   return {
@@ -61,7 +79,7 @@ const getChildHealth = async (childIdParam, query = {}, user) => {
   const childId = parseInt(childIdParam, 10);
 
   const { rows: childRows } = await db.query(
-    `SELECT id, caregiver_id FROM children WHERE id = $1`,
+    `SELECT id, caregiver_id, daycare_id FROM children WHERE id = $1`,
     [childId]
   );
   if (childRows.length === 0) {
@@ -71,6 +89,11 @@ const getChildHealth = async (childIdParam, query = {}, user) => {
   }
 
   const child = childRows[0];
+  if (user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+    const err = new Error('Child profile not found');
+    err.statusCode = 404;
+    throw err;
+  }
 
   // Authorization checks
   if (user.role === 'parent') {
@@ -89,7 +112,7 @@ const getChildHealth = async (childIdParam, query = {}, user) => {
   const typeFilter = query.record_type || null;
 
   const { rows } = await db.query(
-    `SELECT hr.id, hr.child_id, hr.record_type, hr.description, hr.severity, hr.parent_notified, hr.recorded_at,
+    `SELECT hr.id, hr.child_id, hr.record_type, hr.description, hr.severity, hr.parent_notified, hr.recorded_at, hr.daycare_id,
             u.name AS recorded_by_name
      FROM health_records hr
      JOIN users u ON u.id = hr.recorded_by
@@ -108,19 +131,49 @@ const getChildHealth = async (childIdParam, query = {}, user) => {
 /**
  * Update parent notification status.
  */
-const markNotified = async (recordIdParam) => {
+const markNotified = async (recordIdParam, user) => {
   const recordId = parseInt(recordIdParam, 10);
+
+  const { rows: existingRows } = await db.query(
+    `SELECT hr.*, c.daycare_id, c.caregiver_id
+     FROM health_records hr
+     JOIN children c ON c.id = hr.child_id
+     WHERE hr.id = $1`,
+    [recordId]
+  );
+  if (existingRows.length === 0) {
+    const err = new Error('Health record not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const existing = existingRows[0];
+  if (user && user.role !== 'super_admin' && user.daycare_id && existing.daycare_id !== user.daycare_id) {
+    const err = new Error('Health record not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (user && user.role === 'caregiver' && existing.caregiver_id !== user.id) {
+    const err = new Error('Access denied: You are not assigned to this child');
+    err.statusCode = 403;
+    throw err;
+  }
 
   const { rows } = await db.query(
     `UPDATE health_records SET parent_notified = TRUE WHERE id = $1 RETURNING *`,
     [recordId]
   );
 
-  if (rows.length === 0) {
-    const err = new Error('Health record not found');
-    err.statusCode = 404;
-    throw err;
-  }
+  await logAudit(
+    user.id,
+    'HEALTH_RECORD_NOTIFIED',
+    'health_records',
+    recordId,
+    { child_id: existing.child_id, parent_notified: true },
+    null,
+    existing.daycare_id
+  );
 
   return {
     ...rows[0],

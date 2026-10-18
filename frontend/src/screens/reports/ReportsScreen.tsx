@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { View, Pressable, ScrollView } from "react-native";
-import { ArrowRight, Clock, Info } from "phosphor-react-native";
+import React, { useState, useEffect, useCallback } from "react";
+import { View, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { ArrowRight, Clock, Info, CalendarBlank } from "phosphor-react-native";
 import {
   Page,
   Text,
@@ -11,25 +11,81 @@ import {
   s,
 } from "../../components/design/System";
 import { artwork } from "../../theme/assets";
-import { filterReports } from "./data";
+import { useChild } from "../../context/ChildContext";
+import { getChildReports, DailyReportSummary } from "../../api/parentApi";
+
 export function ReportsScreen({ navigation }: any) {
+  const { selectedChild } = useChild();
+  const childId = selectedChild?.id || 1;
+  const childName = selectedChild?.full_name ? selectedChild.full_name.split(" ")[0] : "Your Child";
+  const groupName = selectedChild?.group_name || "Daycare Group";
+
   const [filter, setFilter] = useState("This Month");
-  const shown = filterReports(filter);
+  const [reports, setReports] = useState<DailyReportSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadReports = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getChildReports(childId);
+      setReports(data);
+    } catch {
+      setReports([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [childId]);
+
+  useEffect(() => {
+    loadReports();
+    const unsubscribe = navigation.addListener?.("focus", () => {
+      loadReports();
+    });
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, [navigation, loadReports]);
+
+  // Filter reports
+  const todayStr = new Date().toISOString().split("T")[0];
+  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+  const filtered = reports.filter((r) => {
+    if (filter === "Today") {
+      return r.report_date.slice(0, 10) === todayStr;
+    }
+    if (filter === "This Week") {
+      return new Date(r.report_date) >= oneWeekAgo;
+    }
+    if (filter === "This Month") {
+      return new Date(r.report_date) >= startOfMonth;
+    }
+    return true; // "All"
+  });
+
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  };
+
   return (
-    <Page title="Reports" subtitle="A look back at Liya’s daycare days.">
+    <Page title="Reports" subtitle={`A look back at ${childName}’s daycare days.`}>
       <Card tint="#F1F0F5" style={{ padding: 16 }}>
         <View style={s.row}>
           <Avatar source={artwork.reportsChild} />
           <View>
             <Text size={23} weight="semibold">
-              Liya
+              {selectedChild?.full_name || childName}
             </Text>
             <Text size={13} color="#767C86">
-              Sunflower Group
+              {groupName}
             </Text>
           </View>
         </View>
       </Card>
+
+      {/* Filter Tabs */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -56,73 +112,68 @@ export function ReportsScreen({ navigation }: any) {
           </Pressable>
         ))}
       </ScrollView>
-      {shown.map((r, i) => (
-        <Card
-          key={r.id}
-          style={{
-            marginBottom: 16,
-            padding: 22,
-            borderLeftWidth: r.present ? 1 : 4,
-            borderLeftColor: r.present ? "#F0ECE6" : "#F2B9BB",
-          }}
-        >
-          <View style={s.between}>
-            <Text size={19}>{r.date}</Text>
-            <Badge
-              title={r.present ? "● Present" : "● Absent"}
-              tone={r.present ? "green" : "red"}
-            />
-          </View>
-          {r.present ? (
-            <>
-              <View style={[s.row, { marginVertical: 18 }]}>
-                <Badge title={r.mood} tone="neutral" />
+
+      {loading ? (
+        <Card style={{ alignItems: "center", paddingVertical: 40 }}>
+          <ActivityIndicator color="#061224" />
+          <Text size={13} color="#7E828A" style={{ marginTop: 10 }}>Loading daily reports…</Text>
+        </Card>
+      ) : filtered.length > 0 ? (
+        filtered.map((r, i) => (
+          <Card
+            key={r.id}
+            style={{
+              marginBottom: 16,
+              padding: 22,
+              borderLeftWidth: 4,
+              borderLeftColor: "#2D6A4F",
+            }}
+          >
+            <View style={s.between}>
+              <Text size={19}>{formatDate(r.report_date)}</Text>
+              <Badge
+                title="● Recorded"
+                tone="green"
+              />
+            </View>
+
+            <View style={[s.row, { marginVertical: 16, gap: 8 }]}>
+              {r.mood ? <Badge title={r.mood.charAt(0).toUpperCase() + r.mood.slice(1)} tone="neutral" /> : null}
+              {r.sleep_duration_min ? (
                 <Badge
-                  title={
-                    "◷ " +
-                    r.activities.filter(
-                      (a) => a.kind !== "arrival" && a.kind !== "departure",
-                    ).length +
-                    " updates"
-                  }
+                  title={`◷ Nap ${r.sleep_duration_min}m`}
                   tone="neutral"
                 />
-              </View>
-              {r.summary ? (
-                <Text size={14} color="#6E747E" style={{ marginBottom: 22 }}>
-                  {r.summary}
-                </Text>
               ) : null}
-              <Button
-                title="View Report"
-                variant={i === 0 ? "primary" : "secondary"}
-                icon={i === 0 ? ArrowRight : undefined}
-                onPress={() =>
-                  navigation.navigate("FullDailyReport", { reportId: r.id })
-                }
-              />
-            </>
-          ) : (
-            <View
-              style={[
-                s.row,
-                {
-                  alignItems: "flex-start",
-                  marginTop: 22,
-                  padding: 14,
-                  borderRadius: 14,
-                  backgroundColor: "#F7F5F7",
-                },
-              ]}
-            >
-              <Info size={20} color="#7F8490" />
-              <Text size={14} color="#7F8490" style={{ flex: 1 }}>
-                {r.summary}
-              </Text>
+              {r.caregiver_name ? (
+                <Badge
+                  title={`By ${r.caregiver_name}`}
+                  tone="neutral"
+                />
+              ) : null}
             </View>
-          )}
+
+            <Button
+              title="View Full Report"
+              variant={i === 0 ? "primary" : "secondary"}
+              icon={i === 0 ? ArrowRight : undefined}
+              onPress={() =>
+                navigation.navigate("FullDailyReport", { reportId: r.id })
+              }
+            />
+          </Card>
+        ))
+      ) : (
+        <Card style={{ padding: 24, alignItems: "center" }}>
+          <CalendarBlank size={36} color="#8A909B" />
+          <Text size={16} weight="semibold" style={{ marginTop: 12 }}>
+            No reports for {filter.toLowerCase()}
+          </Text>
+          <Text size={13} color="#7E828A" style={{ textAlign: "center", marginTop: 6, lineHeight: 18 }}>
+            Daily activity reports will be posted here as caregivers log attendance, meals, and naps.
+          </Text>
         </Card>
-      ))}
+      )}
     </Page>
   );
 }

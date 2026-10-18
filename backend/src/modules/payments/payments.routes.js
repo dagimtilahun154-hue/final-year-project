@@ -12,7 +12,7 @@ const { initiatePaymentSchema } = require('./payments.validator');
 const c = require('./payments.controller');
 
 router.post('/initiate', auth, allowRoles('parent'), validate(initiatePaymentSchema), c.initiatePayment);
-// Webhook — no JWT auth (called by gateway backend); signature verification in controller
+// Reserved callback URL. The service rejects every callback while payments are deferred.
 router.post('/webhook', c.handleWebhook);
 router.get('/order/:id', auth, allowRoles('admin', 'parent'), c.getPaymentByOrder);
 

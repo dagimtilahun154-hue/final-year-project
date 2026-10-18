@@ -24,6 +24,8 @@ router.post('/announcements', auth, allowRoles('admin'), validate(createAnnounce
 router.get('/messages', auth, c.listMessages);
 router.post('/messages', auth, validate(sendMessageSchema), c.sendMessage);
 router.patch('/messages/:id/read', auth, c.markMessageRead);
+router.get('/contacts', auth, c.listContacts);
+
 
 // Alerts
 router.get('/alerts', auth, c.listAlerts);

@@ -9,9 +9,11 @@ import { createStackNavigator } from "@react-navigation/stack";
 import { MainTabNavigator, MainTabParamList } from "./MainTabNavigator";
 import { SplashScreen } from "../screens/auth/SplashScreen";
 import { OnboardingScreen } from "../screens/auth/OnboardingScreen";
-import { LoginScreen } from "../screens/auth/LoginScreen";
+import { LoginScreen, RegisterScreen } from "../screens/auth/LoginScreen";
 import { ForgotPasswordScreen } from "../screens/auth/ForgotPasswordScreen";
 import { OTPScreen } from "../screens/auth/OTPScreen";
+import { ChildProfileWizardScreen } from "../screens/auth/ChildProfileWizardScreen";
+
 import { FullDailyReportScreen } from "../screens/reports/FullDailyReportScreen";
 import { ChildProfileScreen } from "../screens/profile/ChildProfileScreen";
 import { ParentProfileScreen } from "../screens/profile/ParentProfileScreen";
@@ -32,12 +34,15 @@ import {
   SecurityScreen,
 } from "../screens/profile/AccountScreens";
 export type RootStackParamList = {
-  Splash: undefined;
+  Splash: { stay?: boolean } | undefined;
   Onboarding: undefined;
-  Login: undefined;
+  Login: { mode?: "signin" | "register" } | undefined;
+  Register: undefined;
   ForgotPassword: undefined;
   OTP: undefined;
+  ChildProfileWizard: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
+
   FullDailyReport: { reportId?: number } | undefined;
   ChildProfile: { childId?: number } | undefined;
   ParentProfile: undefined;
@@ -86,9 +91,12 @@ export function RootNavigator() {
         <Stack.Screen name="Splash" component={SplashScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="Register" component={RegisterScreen} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         <Stack.Screen name="OTP" component={OTPScreen} />
+        <Stack.Screen name="ChildProfileWizard" component={ChildProfileWizardScreen} />
         <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+
         <Stack.Screen
           name="FullDailyReport"
           component={FullDailyReportScreen}

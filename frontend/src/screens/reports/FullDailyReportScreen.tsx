@@ -1,5 +1,5 @@
-import React from "react";
-import { View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { View, ActivityIndicator } from "react-native";
 import {
   SignIn,
   SignOut,
@@ -10,6 +10,9 @@ import {
   Tree,
   Smiley,
   ChatCircle,
+  ArrowClockwise,
+  Heart,
+  CheckCircle,
 } from "phosphor-react-native";
 import {
   Page,
@@ -20,155 +23,201 @@ import {
   Section,
   Button,
   s,
+  Notice,
 } from "../../components/design/System";
 import { artwork } from "../../theme/assets";
-import { reports, previewToday } from "./data";
-const activityStyle = {
-  arrival: { Icon: SignIn, bg: "#E7EFFC", ink: "#557DAA" },
-  departure: { Icon: SignOut, bg: "#E7EFFC", ink: "#557DAA" },
-  meal: { Icon: ForkKnife, bg: "#FFF1C7", ink: "#B48420" },
-  learning: { Icon: PuzzlePiece, bg: "#E7F5F4", ink: "#368C95" },
-  play: { Icon: Tree, bg: "#EAF3E6", ink: "#578458" },
-  sleep: { Icon: Moon, bg: "#EEEAF7", ink: "#8270AC" },
-  art: { Icon: Palette, bg: "#FCECD9", ink: "#B78652" },
-};
+import { useChild } from "../../context/ChildContext";
+import { getDailyReport, DetailedDailyReport } from "../../api/parentApi";
+
 export function FullDailyReportScreen({ navigation, route }: any) {
-  const report = reports.find((r) => r.id === (route.params?.reportId ?? 1));
-  if (!report || !report.present)
+  const { selectedChild } = useChild();
+  const reportId = route.params?.reportId ?? 1;
+
+  const [report, setReport] = useState<DetailedDailyReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadReport = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await getDailyReport(reportId);
+      setReport(data);
+    } catch {
+      setError("This daily report could not be loaded from the database.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadReport();
+  }, [reportId]);
+
+  const childName = selectedChild?.full_name || "Child";
+  const groupName = selectedChild?.group_name || "Daycare Group";
+
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  };
+
+  if (loading) {
     return (
       <Page title="Daily Report" back tabs activeTab="Reports">
-        <Card>
-          <Text>{report ? report.summary : "This report is unavailable."}</Text>
+        <Card style={{ alignItems: "center", paddingVertical: 40 }}>
+          <ActivityIndicator color="#061224" />
+          <Text size={14} color="#858A93" style={{ marginTop: 12 }}>Loading report details…</Text>
         </Card>
       </Page>
     );
-  const activities = report.activities.map((a) => ({
-    ...a,
-    ...activityStyle[a.kind],
-  }));
+  }
+
+  if (error || !report) {
+    return (
+      <Page title="Daily Report" back tabs activeTab="Reports">
+        <Card style={{ alignItems: "center", paddingVertical: 32 }}>
+          <Notice tone="error">{error || "Report not found."}</Notice>
+          <Button title="Retry" icon={ArrowClockwise} onPress={loadReport} style={{ marginTop: 16 }} />
+        </Card>
+      </Page>
+    );
+  }
+
   return (
     <Page
-      title="Liya’s Day"
-      subtitle={report.date + ", " + report.isoDate.slice(0, 4)}
+      title={`${childName}’s Day`}
+      subtitle={formatDate(report.report_date)}
       back
       tabs
       activeTab="Reports"
     >
+      {/* Child & Caregiver Banner */}
       <Card tint="#F2F0F8">
         <View style={s.row}>
           <Avatar source={artwork.child} />
-          <View>
+          <View style={{ flex: 1 }}>
             <Text size={18} weight="semibold">
-              Liya
+              {childName}
             </Text>
             <Text size={13} color="#7B7F89">
-              4 years · Sunflower Group
+              {groupName} · Caregiver: {report.caregiver_name || "Staff"}
             </Text>
           </View>
         </View>
       </Card>
-      <Section title="Attendance" />
+
+      {/* Meals & Nutrition Section */}
+      <Section title="Meals & Nutrition" />
       <Card>
-        <View style={s.between}>
-          <View style={s.row}>
-            <SignIn size={22} color="#6384AA" />
-            <View>
-              <Text size={12} color="#7B818D">
-                Checked in
-              </Text>
-              <Text weight="medium">{report.checkIn}</Text>
+        {report.meals && report.meals.length > 0 ? (
+          report.meals.map((m, idx) => (
+            <View key={m.id || idx}>
+              <View style={[s.row, { paddingVertical: 8 }]}>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#FFF7CF", alignItems: "center", justifyContent: "center" }}>
+                  <ForkKnife size={18} color="#DD7B13" />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text weight="semibold" size={14}>
+                    {m.meal_type ? m.meal_type.charAt(0).toUpperCase() + m.meal_type.slice(1) : "Meal"}
+                  </Text>
+                  <Text size={13} color="#606B74" style={{ marginTop: 2 }}>
+                    {m.description}
+                  </Text>
+                </View>
+                {m.portion && (
+                  <Badge title={`Ate: ${m.portion}`} tone="neutral" />
+                )}
+              </View>
+              {idx < report.meals.length - 1 && <View style={s.divider} />}
             </View>
-          </View>
-          <Badge
-            title={report.checkOut ? "Collected" : "● At daycare"}
-            tone={report.checkOut ? "neutral" : "green"}
-          />
-        </View>
-        <View style={s.divider} />
+          ))
+        ) : (
+          <Text color="#7B818D" size={13}>No meals recorded for this day.</Text>
+        )}
+      </Card>
+
+      {/* Nap & Rest Section */}
+      <Section title="Sleep & Rest" />
+      <Card>
         <View style={s.row}>
-          <SignOut size={22} color="#9297A1" />
-          <View>
-            <Text size={12} color="#7B818D">
-              Checked out
+          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#F1EDF6", alignItems: "center", justifyContent: "center" }}>
+            <Moon size={18} color="#6745AF" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text weight="semibold" size={14}>
+              {report.sleep_duration_min ? `Nap: ${report.sleep_duration_min} minutes` : "Rest Period"}
             </Text>
-            <Text color="#7B818D">{report.checkOut || "Not yet"}</Text>
+            <Text size={13} color="#606B74" style={{ marginTop: 2 }}>
+              {report.sleep_notes || "Child rested comfortably during scheduled nap time."}
+            </Text>
           </View>
         </View>
       </Card>
-      <Section
-        title={
-          report.isoDate === previewToday
-            ? "Today’s Timeline"
-            : "Day’s Timeline"
-        }
-      />
-      {activities.map((a, i) => (
-        <View key={a.time} style={{ flexDirection: "row", gap: 16 }}>
-          <View style={{ width: 34, alignItems: "center" }}>
-            <View
-              style={{
-                backgroundColor: a.bg,
-                width: 34,
-                height: 34,
-                borderRadius: 17,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <a.Icon size={19} color={a.ink} />
-            </View>
-            {i < activities.length - 1 && (
-              <View
-                style={{
-                  width: 1,
-                  flex: 1,
-                  backgroundColor: "#DDDDE0",
-                  marginVertical: 5,
-                }}
-              />
-            )}
-          </View>
-          <Card style={{ flex: 1, marginBottom: 16, padding: 17 }}>
-            <Text size={11} color={a.ink}>
-              {a.time}
-            </Text>
-            <Text size={17} weight="medium" style={{ marginVertical: 5 }}>
-              {a.title}
-            </Text>
-            <Text size={13} color="#737C87">
-              {a.note}
-            </Text>
-          </Card>
-        </View>
-      ))}
-      <Section title="Daily Summary" />
+
+      {/* Learning & Activities Section */}
+      <Section title="Activities & Learning" />
       <Card>
-        {[
-          ["Mood", report.mood],
-          [
-            "Behavior",
-            report.mood === "Calm"
-              ? "Calm and engaged"
-              : "Active and cooperative",
-          ],
-          ["Health", "No unusual observations"],
-          ["General", report.summary],
-        ].map(([label, value], i) => (
-          <View
-            key={label}
-            style={{
-              paddingVertical: 10,
-              borderBottomWidth: i === 3 ? 0 : 1,
-              borderBottomColor: "#F1EFEC",
-            }}
-          >
-            <Text size={12} color="#7B818D">
-              {label}
-            </Text>
-            <Text weight="medium">{value}</Text>
-          </View>
-        ))}
+        {report.activities && report.activities.length > 0 ? (
+          report.activities.map((a, idx) => (
+            <View key={a.id || idx}>
+              <View style={[s.row, { paddingVertical: 8 }]}>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#E8F6F3", alignItems: "center", justifyContent: "center" }}>
+                  <PuzzlePiece size={18} color="#008794" />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text weight="semibold" size={14}>
+                    {(a.activity_type || "Activity").replace("_", " ").toUpperCase()}
+                  </Text>
+                  <Text size={13} color="#606B74" style={{ marginTop: 2 }}>
+                    {a.description}
+                  </Text>
+                  {a.location && (
+                    <Text size={11} color="#8A909B" style={{ marginTop: 2 }}>
+                      Location: {a.location}
+                    </Text>
+                  )}
+                </View>
+              </View>
+              {idx < report.activities.length - 1 && <View style={s.divider} />}
+            </View>
+          ))
+        ) : (
+          <Text color="#7B818D" size={13}>No specific activity items logged for this day.</Text>
+        )}
       </Card>
+
+      {/* Observations & Behavior Summary */}
+      <Section title="Daily Observations & Mood" />
+      <Card>
+        <View style={{ paddingVertical: 6 }}>
+          <Text size={12} color="#7B818D">RECORDED MOOD</Text>
+          <Text weight="medium" style={{ marginTop: 3 }}>
+            {report.mood ? (report.mood.charAt(0).toUpperCase() + report.mood.slice(1)) : "Calm and happy"}
+          </Text>
+        </View>
+        {report.behavior_notes ? (
+          <>
+            <View style={s.divider} />
+            <View style={{ paddingVertical: 6 }}>
+              <Text size={12} color="#7B818D">BEHAVIOR & SOCIAL ENGAGEMENT</Text>
+              <Text weight="medium" style={{ marginTop: 3 }}>{report.behavior_notes}</Text>
+            </View>
+          </>
+        ) : null}
+        {report.general_observations ? (
+          <>
+            <View style={s.divider} />
+            <View style={{ paddingVertical: 6 }}>
+              <Text size={12} color="#7B818D">CAREGIVER OBSERVATIONS</Text>
+              <Text weight="medium" style={{ marginTop: 3 }}>{report.general_observations}</Text>
+            </View>
+          </>
+        ) : null}
+      </Card>
+
+      {/* Caregiver Note Footer Card */}
       <Card tint="#0C263E" style={{ marginTop: 24 }}>
         <View style={s.row}>
           <Avatar source={artwork.caregiver} size={38} />
@@ -177,19 +226,20 @@ export function FullDailyReportScreen({ navigation, route }: any) {
               Caregiver Note
             </Text>
             <Text color="#BDC9D7" size={12}>
-              From Sara
+              From {report.caregiver_name || "Caregiver"}
             </Text>
           </View>
         </View>
-        <Text color="#E4EAF1" size={14} style={{ marginTop: 18 }}>
-          {report.caregiverNote}
+        <Text color="#E4EAF1" size={14} style={{ marginTop: 14, lineHeight: 20 }}>
+          {report.general_observations || report.behavior_notes || "Thank you for another wonderful day at Ankelba daycare!"}
         </Text>
       </Card>
+
       <Button
         title="Message Caregiver"
         icon={ChatCircle}
         onPress={() => navigation.navigate("CaregiverChat", { threadId: 1 })}
-        style={{ marginTop: 24 }}
+        style={{ marginTop: 24, marginBottom: 20 }}
       />
     </Page>
   );

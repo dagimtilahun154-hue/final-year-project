@@ -84,20 +84,42 @@ export function OnboardingScreen({ navigation }: any) {
           />
         ))}
       </View>
-      <Button
-        title={index === 2 ? "Get Started" : "Next"}
-        icon={ArrowRight}
-        onPress={() =>
-          index === 2 ? navigation.navigate("Login") : setIndex(index + 1)
-        }
-      />
+      {index === 2 ? (
+        <View style={{ gap: 12 }}>
+          <Button
+            title="Get Daycare Access"
+            icon={ArrowRight}
+            onPress={() => navigation.navigate("Register")}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => navigation.navigate("Login")}
+            style={{
+              paddingVertical: 12,
+              alignItems: "center",
+              backgroundColor: "#EBEAEF",
+              borderRadius: 24,
+            }}
+          >
+            <Text size={14} weight="semibold" color="#061224">
+              Sign In to Existing Account
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Button
+          title="Next"
+          icon={ArrowRight}
+          onPress={() => setIndex(index + 1)}
+        />
+      )}
       <Pressable
         accessibilityRole="button"
-        onPress={() => navigation.navigate("Login")}
-        style={{ padding: 20, alignItems: "center" }}
+        onPress={() => navigation.navigate("Register")}
+        style={{ padding: 18, alignItems: "center" }}
       >
         <Text size={14} color="#727782">
-          Skip
+          New parent? Ask your daycare for access
         </Text>
       </Pressable>
     </Page>

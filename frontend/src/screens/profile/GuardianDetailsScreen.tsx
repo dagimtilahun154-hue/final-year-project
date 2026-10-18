@@ -1,135 +1,116 @@
-import React, { useState } from "react";
+import React from "react";
 import { View } from "react-native";
-import { Fingerprint, Check } from "phosphor-react-native";
+import { Fingerprint, Check, ShieldCheck, EnvelopeSimple } from "phosphor-react-native";
 import {
   Page,
   Text,
   Card,
   Avatar,
   Badge,
-  Field,
   Notice,
   Button,
   s,
 } from "../../components/design/System";
 import { artwork } from "../../theme/assets";
-import { useDesign } from "../../context/DesignContext";
-import { contactError } from "../../utils/contact";
+import { useChild } from "../../context/ChildContext";
+import { GuardianRecord } from "../../api/parentApi";
+
 export function GuardianDetailsScreen({ navigation, route }: any) {
-  const { guardians, saveGuardian } = useDesign();
-  const guardian = guardians.find((g) => g.id === route.params?.guardianId);
-  const [phone, setPhone] = useState(guardian?.phone || "");
-  const [email, setEmail] = useState(guardian?.email || "");
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
-  if (!guardian)
+  const { selectedChild } = useChild();
+  const guardian: GuardianRecord | undefined = route.params?.guardian;
+
+  if (!guardian) {
     return (
       <Page title="Guardian Details" back>
-        <Notice>This guardian is unavailable.</Notice>
+        <Notice tone="error">Guardian details are currently unavailable.</Notice>
+        <Button
+          title="Back to Guardians"
+          variant="secondary"
+          onPress={() => navigation.goBack()}
+          style={{ marginTop: 16 }}
+        />
       </Page>
     );
+  }
+
+  const childName = selectedChild?.full_name || "Enrolled Child";
+  const groupName = selectedChild?.group_name || "Early Learning";
+
   return (
     <Page title="Guardian Details" back tabs activeTab="Profile">
-      <Card tint="#F1F0F5" style={{ alignItems: "center" }}>
+      <Card tint="#F4F5F8" style={{ alignItems: "center", paddingVertical: 24 }}>
         <Avatar
-          source={guardian.photo ? artwork[guardian.photo] : undefined}
           initials={guardian.name
             .split(" ")
             .map((n) => n[0])
-            .join("")}
-          size={86}
+            .join("")
+            .slice(0, 2)
+            .toUpperCase()}
+          size={84}
         />
-        <Text size={21} weight="semibold" style={{ marginTop: 16 }}>
+        <Text size={22} weight="semibold" style={{ marginTop: 14 }}>
           {guardian.name}
         </Text>
-        <Text color="#777E88" size={14}>
-          {guardian.relationship}
+        <Text color="#6E7682" size={14} style={{ marginTop: 2 }}>
+          {guardian.relationship || "Authorized Guardian"}
         </Text>
         <View
           style={[
             s.row,
-            { marginTop: 14, flexWrap: "wrap", justifyContent: "center" },
+            { marginTop: 14, flexWrap: "wrap", justifyContent: "center", gap: 8 },
           ]}
         >
           <Badge
-            title={guardian.authorized ? "Authorized" : "Pending approval"}
-            tone={guardian.authorized ? "green" : "gold"}
+            title={guardian.pickup_authorized ? "Pickup Authorized" : "Approval Pending"}
+            tone={guardian.pickup_authorized ? "green" : "gold"}
           />
-          {guardian.enrolled && (
-            <Badge title="Biometric enrolled" tone="neutral" />
-          )}
+          <Badge
+            title={guardian.biometric_enrolled ? "Biometric Enrolled" : "Enrollment Pending"}
+            tone={guardian.biometric_enrolled ? "neutral" : "gold"}
+          />
         </View>
       </Card>
-      <Card style={{ marginTop: 20 }}>
+
+      <Card style={{ marginTop: 18, padding: 16 }}>
         <View style={s.row}>
           <Avatar source={artwork.child} size={44} />
-          <View>
-            <Text size={10} color="#90959E">
+          <View style={{ marginLeft: 12 }}>
+            <Text size={10} color="#8A919B" style={{ letterSpacing: 0.5 }}>
               ASSOCIATED CHILD
             </Text>
-            <Text>Liya · Sunflower Group</Text>
+            <Text size={16} weight="medium">
+              {childName} · {groupName}
+            </Text>
           </View>
         </View>
       </Card>
-      <Card style={{ marginTop: 20 }}>
-        <Field
-          label="Phone Number"
-          value={phone}
-          onChangeText={(value) => {
-            setPhone(value);
-            setSaved(false);
-            setError("");
-          }}
-          keyboardType="phone-pad"
-        />
-        <Field
-          label="Email Address"
-          value={email}
-          onChangeText={(value) => {
-            setEmail(value);
-            setSaved(false);
-            setError("");
-          }}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
+
+      <Card style={{ marginTop: 18, padding: 18 }}>
+        <Text size={16} weight="semibold" style={{ marginBottom: 14 }}>
+          Contact Information
+        </Text>
+        <View style={[s.row, { marginBottom: 12 }]}>
+          <EnvelopeSimple size={18} color="#6C7380" />
+          <View style={{ marginLeft: 10 }}>
+            <Text size={11} color="#8A919B">EMAIL ADDRESS</Text>
+            <Text size={14} weight="medium">{guardian.email || "No email on record"}</Text>
+          </View>
+        </View>
       </Card>
-      <Notice>
-        {guardian.enrolled
-          ? "Adult guardian verification is completed at the daycare."
-          : guardian.authorized
-            ? "Daycare staff can arrange adult verification."
-            : "Daycare approval is required before this guardian can collect Liya."}{" "}
-        Children’s biometrics are never used.
+
+      <Notice tone={guardian.biometric_enrolled ? "success" : "neutral"}>
+        {guardian.biometric_enrolled
+          ? "This guardian has completed biometric enrollment at the daycare kiosk and is fully approved for pickup."
+          : "Biometric enrollment must be completed in-person at the daycare entrance kiosk with staff assistance."}
       </Notice>
-      {error ? <Notice tone="error">{error}</Notice> : null}
-      {saved && <Notice tone="success">Changes saved for this preview.</Notice>}
+
       <Button
-        title="Save Draft"
-        icon={Check}
-        onPress={() => {
-          const problem = contactError(guardian.name, phone, email);
-          if (problem) {
-            setError(problem);
-            return;
-          }
-          setError("");
-          saveGuardian({
-            ...guardian,
-            phone: phone.trim(),
-            email: email.trim(),
-          });
-          setSaved(true);
-        }}
-        style={{ marginTop: 18 }}
-      />
-      <Button
-        title="View Pickup Status"
+        title="View Pickup Status & History"
         variant="outline"
         onPress={() =>
-          navigation.navigate("PickupVerification", { guardianId: guardian.id })
+          navigation.navigate("PickupVerification", { guardianId: guardian.guardian_link_id })
         }
-        style={{ marginTop: 12 }}
+        style={{ marginTop: 16 }}
       />
     </Page>
   );

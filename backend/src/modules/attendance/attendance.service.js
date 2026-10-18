@@ -19,9 +19,9 @@ const recordAttendance = (body,user) => require('../portal/portal.service').reco
 const getChildAttendance = async (childIdParam, query = {}, user) => {
   const childId = parseInt(childIdParam, 10);
 
-  // Verify child exists
+  // Verify child exists & belongs to user's daycare
   const { rows: childRows } = await db.query(
-    `SELECT id, caregiver_id FROM children WHERE id = $1`,
+    `SELECT id, caregiver_id, daycare_id FROM children WHERE id = $1`,
     [childId]
   );
   if (childRows.length === 0) {
@@ -31,6 +31,11 @@ const getChildAttendance = async (childIdParam, query = {}, user) => {
   }
 
   const child = childRows[0];
+  if (user && user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+    const err = new Error('Child profile not found');
+    err.statusCode = 404;
+    throw err;
+  }
 
   // RBAC checks
   if (user.role === 'parent') {
@@ -67,10 +72,12 @@ const getChildAttendance = async (childIdParam, query = {}, user) => {
 /**
  * Admin Attendance Monitor Grid & Summary Counts (LATERAL JOIN pattern).
  */
-const listAttendance = async (query = {}) => {
+const listAttendance = async (query = {}, user = null) => {
+  const isSuper = user && user.role === 'super_admin';
+  const daycareId = user?.daycare_id || null;
   const groupId = query.group_id ? parseInt(query.group_id, 10) : null;
 
-  // Query 1: Admin live attendance grid
+  // Query 1: Admin live attendance grid scoped by daycare
   const { rows: grid } = await db.query(
     `SELECT c.id AS child_id, c.full_name, g.name AS group_name, u.name AS caregiver_name,
             a.event_type AS latest_status, a.event_time AS last_event_time
@@ -79,16 +86,18 @@ const listAttendance = async (query = {}) => {
      LEFT JOIN users u ON u.id = c.caregiver_id
      LEFT JOIN LATERAL (
        SELECT event_type, event_time FROM attendance
-       WHERE child_id = c.id AND event_time::date = CURRENT_DATE
-       ORDER BY event_time DESC LIMIT 1
+       WHERE child_id = c.id
+         AND (event_time AT TIME ZONE 'Africa/Addis_Ababa')::date = (clock_timestamp() AT TIME ZONE 'Africa/Addis_Ababa')::date
+       ORDER BY event_time DESC, id DESC LIMIT 1
      ) a ON TRUE
      WHERE c.enrollment_status = 'active'
-       AND ($1::integer IS NULL OR c.group_id = $1)
+       AND ($1::boolean = TRUE OR c.daycare_id = $2)
+       AND ($3::integer IS NULL OR c.group_id = $3)
      ORDER BY g.name NULLS LAST, c.full_name ASC`,
-    [groupId]
+    [isSuper, daycareId, groupId]
   );
 
-  // Query 2: Attendance summary statistics
+  // Query 2: Attendance summary statistics scoped by daycare
   const { rows: summaryRows } = await db.query(
     `SELECT
        COUNT(c.id)::integer AS total_enrolled,
@@ -99,11 +108,13 @@ const listAttendance = async (query = {}) => {
      FROM children c
      LEFT JOIN LATERAL (
        SELECT event_type FROM attendance
-       WHERE child_id = c.id AND event_time::date = CURRENT_DATE
-       ORDER BY event_time DESC LIMIT 1
+       WHERE child_id = c.id
+         AND (event_time AT TIME ZONE 'Africa/Addis_Ababa')::date = (clock_timestamp() AT TIME ZONE 'Africa/Addis_Ababa')::date
+       ORDER BY event_time DESC, id DESC LIMIT 1
      ) a ON TRUE
-     WHERE c.enrollment_status = 'active'`,
-    []
+     WHERE c.enrollment_status = 'active'
+       AND ($1::boolean = TRUE OR c.daycare_id = $2)`,
+    [isSuper, daycareId]
   );
 
   return {
@@ -128,7 +139,7 @@ const getAttendanceSummary = async (query = {}, user) => {
 
   if (childIdParam) {
     const { rows: childRows } = await db.query(
-      `SELECT id, full_name, caregiver_id FROM children WHERE id = $1`,
+      `SELECT id, full_name, caregiver_id, daycare_id FROM children WHERE id = $1`,
       [childIdParam]
     );
     if (childRows.length === 0) {
@@ -137,6 +148,12 @@ const getAttendanceSummary = async (query = {}, user) => {
       throw err;
     }
     const child = childRows[0];
+
+    if (user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+      const err = new Error('Child not found');
+      err.statusCode = 404;
+      throw err;
+    }
 
     if (user.role === 'parent') {
       const linked = await isParentLinked(user.id, childIdParam);
@@ -209,12 +226,15 @@ const getAttendanceSummary = async (query = {}, user) => {
     };
   }
 
-  // Center-wide aggregated summary (Admin only)
-  if (user.role !== 'admin') {
+  // Center-wide aggregated summary (Admin or Super Admin only)
+  if (!['admin', 'super_admin'].includes(user.role)) {
     const err = new Error('Access denied: Only admins can view center-wide attendance summary');
     err.statusCode = 403;
     throw err;
   }
+
+  const isSuper = user.role === 'super_admin';
+  const daycareId = user.daycare_id || null;
 
   const { rows: stats } = await db.query(
     `SELECT
@@ -226,8 +246,9 @@ const getAttendanceSummary = async (query = {}, user) => {
      LEFT JOIN attendance a ON a.child_id = c.id
        AND ($1::date IS NULL OR a.event_time::date >= $1::date)
        AND ($2::date IS NULL OR a.event_time::date <= $2::date)
-     WHERE c.enrollment_status = 'active'`,
-    [startDate, endDate]
+     WHERE c.enrollment_status = 'active'
+       AND ($3::boolean = TRUE OR c.daycare_id = $4)`,
+    [startDate, endDate, isSuper, daycareId]
   );
 
   const stat = stats[0];

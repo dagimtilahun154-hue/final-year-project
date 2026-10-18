@@ -8,15 +8,16 @@ const router = express.Router();
 const auth = require('../../middleware/auth');
 const { allowRoles } = require('../../middleware/rbac');
 const { validate } = require('../../middleware/validator');
-const { contactSchema, instructionSchema, createChildSchema, updateChildSchema, addGuardianSchema } = require('./children.validator');
+const { contactSchema, instructionSchema, createChildSchema, updateChildSchema, addGuardianSchema, enrollFamilySchema } = require('./children.validator');
 const childrenController = require('./children.controller');
 
 router.get('/', auth, allowRoles('admin', 'caregiver'), childrenController.listChildren);
 router.post('/', auth, allowRoles('admin'), validate(createChildSchema), childrenController.createChild);
+router.post('/enroll-family', auth, allowRoles('admin'), validate(enrollFamilySchema), childrenController.enrollFamily);
 router.get('/:id', auth, allowRoles('admin', 'caregiver', 'parent'), childrenController.getChild);
 router.patch('/:id', auth, allowRoles('admin'), validate(updateChildSchema), childrenController.updateChild);
 router.post('/:id/guardians', auth, allowRoles('admin'), validate(addGuardianSchema), childrenController.addGuardian);
-router.get('/:id/guardians', auth, allowRoles('admin'), childrenController.getGuardians);
+router.get('/:id/guardians', auth, allowRoles('admin', 'parent'), childrenController.getGuardians);
 router.delete('/:id/guardians/:gid', auth, allowRoles('admin'), childrenController.removeGuardian);
 
 // Emergency Contacts CRUD

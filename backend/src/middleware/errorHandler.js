@@ -32,6 +32,15 @@ const errorHandler = (err, req, res, next) => {
     return res.status(400).json({ error: err.message || 'Bad request' });
   }
 
+  if (statusCode === 415) {
+    return res.status(415).json({ error: err.message || 'Unsupported media type' });
+  }
+
+  if (statusCode === 429) {
+    res.set('Retry-After', '900');
+    return res.status(429).json({ error: err.message || 'Too many authentication attempts' });
+  }
+
   if (err.name === 'UnauthorizedError' || statusCode === 401) {
     return res.status(401).json({ error: err.message || 'Authentication required' });
   }

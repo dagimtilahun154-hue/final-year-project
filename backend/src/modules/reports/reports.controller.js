@@ -34,7 +34,7 @@ const getChildReports = async (req, res, next) => {
 
 const listReports = async (req, res, next) => {
   try {
-    const result = await svc.listReports(req.query);
+    const result = await svc.listReports(req.query, req.user);
     res.json(result);
   } catch (e) {
     next(e);

@@ -8,6 +8,7 @@
  */
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const legacySecurity = require('../modules/auth/legacy-security');
 
 const auth = async (req, res, next) => {
   try {
@@ -34,11 +35,25 @@ const auth = async (req, res, next) => {
       throw new Error('JWT_SECRET is not configured');
     }
 
-    const decoded = jwt.verify(token, secret);
+    const decoded = jwt.verify(token, secret, { algorithms: ['HS256'], audience: 'ankelba-legacy' });
+    if (!Number.isInteger(decoded.userId) || typeof decoded.auth_state !== 'string') {
+      return res.status(401).json({ error: 'Session expired, please log in again' });
+    }
+    const account = await legacySecurity.findAccount(db, { id: decoded.userId });
+    if (!legacySecurity.activeAccount(account) || !legacySecurity.matchesState(decoded.auth_state, account)) {
+      return res.status(401).json({ error: 'Session expired or account unavailable, please log in again' });
+    }
 
-    const { rows } = await db.query('SELECT u.id,u.status,r.name AS role FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=$1',[decoded.userId]);
-    if (!rows[0] || rows[0].status !== 'active') return res.status(401).json({error:'Account is inactive or unavailable'});
-    req.user = {id:rows[0].id,role:rows[0].role};
+    req.user = {
+      id: account.id,
+      role: account.role,
+      daycare_id: account.daycare_id,
+      daycare_name: account.daycare_name,
+      daycare_status: account.daycare_status,
+      subscription_plan: account.subscription_plan,
+      trial_ends_at: account.trial_ends_at,
+    };
+    req.daycareId = account.daycare_id ? Number(account.daycare_id) : null;
 
     next();
   } catch (err) {
@@ -52,4 +67,8 @@ const auth = async (req, res, next) => {
   }
 };
 
-module.exports = auth;
+// Select once at startup. Preview authentication never falls back to JWTs.
+const { loadDaycareAuthConfig } = require('../config/daycare-auth');
+module.exports = loadDaycareAuthConfig().enabled
+  ? require('../modules/daycare-auth/runtime').authenticate
+  : auth;

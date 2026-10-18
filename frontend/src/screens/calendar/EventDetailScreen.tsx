@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, ActivityIndicator } from "react-native";
 import {
   CalendarBlank,
   MapPin,
@@ -20,36 +20,63 @@ import {
   s,
 } from "../../components/design/System";
 import { artwork } from "../../theme/assets";
-import { events } from "./CalendarScreen";
 import { useDesign } from "../../context/DesignContext";
+import { getDaycareEvents, CalendarEvent } from "../../api/parentApi";
+
 export function EventDetailScreen({ navigation, route }: any) {
-  const event = events.find((e) => e.id === (route.params?.eventId ?? 1));
+  const eventId = route.params?.eventId ?? 1;
+  const passedEvent = route.params?.eventData;
+
+  const [event, setEvent] = useState<CalendarEvent | null>(passedEvent || null);
+  const [loading, setLoading] = useState(!passedEvent);
+
+  useEffect(() => {
+    if (!event) {
+      (async () => {
+        try {
+          const list = await getDaycareEvents(true);
+          const found = list.find((e) => e.id === eventId);
+          setEvent(found || null);
+        } catch {
+          setEvent(null);
+        } finally {
+          setLoading(false);
+        }
+      })();
+    }
+  }, [eventId, event]);
+
   const { reminders, toggleReminder } = useDesign();
-  if (!event)
+
+  if (loading) {
     return (
-      <Page title="Event Details" back>
-        <Card>
-          <Text>This event is unavailable.</Text>
+      <Page title="Event Details" back tabs activeTab="Calendar">
+        <Card style={{ alignItems: "center", paddingVertical: 40 }}>
+          <ActivityIndicator color="#061224" />
+          <Text size={13} color="#7E828A" style={{ marginTop: 10 }}>Loading event details…</Text>
         </Card>
       </Page>
     );
+  }
+
+  if (!event) {
+    return (
+      <Page title="Event Details" back tabs activeTab="Calendar">
+        <Card style={{ padding: 24, alignItems: "center" }}>
+          <Text size={15} weight="medium">This event is unavailable.</Text>
+        </Card>
+      </Page>
+    );
+  }
+
   const reminded = reminders.includes(event.id);
-  const closed = event.category === "Holiday";
-  const preparation = closed
-    ? [
-        "Plan alternative care for this date.",
-        "Contact the office if you have questions.",
-      ]
-    : event.category === "Activity"
-      ? [
-          "Follow your caregiver’s preparation notes.",
-          "Comfortable play clothes are recommended.",
-        ]
-      : [
-          "Please arrive 10 minutes early.",
-          "Bring any questions for your caregiver.",
-          "Contact the daycare if you cannot attend.",
-        ];
+  const formattedDate = new Date(event.event_date).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
   return (
     <Page title="Event Details" back tabs activeTab="Calendar">
       <Card>
@@ -57,86 +84,54 @@ export function EventDetailScreen({ navigation, route }: any) {
           <Text size={21} weight="semibold" style={{ flex: 1 }}>
             {event.title}
           </Text>
-          <Badge title={event.category} tone="neutral" />
+          <Badge title={event.event_type.replace("_", " ")} tone="neutral" />
         </View>
-        <View style={[s.row, { marginTop: 26 }]}>
-          <CalendarBlank size={23} color="#B38C28" />
-          <View style={{ flex: 1 }}>
-            <Text>
-              {new Date(event.year, event.month, event.day).toLocaleDateString(
-                "en-US",
-                { weekday: "long", month: "long", day: "numeric" },
-              )}
-            </Text>
-            <Text size={13} color="#777E88">
-              {event.time}
-            </Text>
-          </View>
-        </View>
-        <View style={[s.row, { marginTop: 18 }]}>
-          <MapPin size={23} color="#B38C28" />
-          <View style={{ flex: 1 }}>
-            <Text>{event.place}</Text>
-            <Text size={13} color="#777E88">
-              Ankelba Early Learning
-            </Text>
-          </View>
-        </View>
-      </Card>
-      <Section title="About this event" />
-      <Card>
-        <Text color="#707883">{event.description}</Text>
-      </Card>
-      <Section title={closed ? "Daycare schedule" : "Who should attend"} />
-      <Card>
-        <View style={s.row}>
-          <UsersThree size={26} color="#A8774B" />
-          <Text style={{ flex: 1 }}>
-            {closed
-              ? "No daycare sessions on this date."
-              : event.category === "Activity"
-                ? "Children and families, as arranged by the daycare."
-                : "Parents or authorized guardians"}
+        <View style={[s.row, { marginTop: 16 }]}>
+          <CalendarBlank size={18} color="#858A93" />
+          <Text size={14} color="#555E69" style={{ marginLeft: 8 }}>
+            {formattedDate}
           </Text>
         </View>
-      </Card>
-      <Section title="Good to know" />
-      <Card>
-        {preparation.map((t) => (
-          <View
-            key={t}
-            style={[s.row, { alignItems: "flex-start", marginBottom: 10 }]}
-          >
-            <CheckCircle size={19} color="#CBA634" />
-            <Text size={14} color="#747B85" style={{ flex: 1 }}>
-              {t}
+        {event.event_time ? (
+          <View style={[s.row, { marginTop: 8 }]}>
+            <Text size={14} color="#555E69" style={{ marginLeft: 26 }}>
+              Time: {event.event_time}
             </Text>
           </View>
-        ))}
+        ) : null}
       </Card>
-      <Card tint="#F5F4EA" style={{ marginTop: 24 }}>
-        <View style={s.row}>
-          <Avatar source={artwork.child} size={38} />
-          <Text size={13}>For Liya · Sunflower Group</Text>
+
+      <Section title="Description & Information" />
+      <Card>
+        <Text size={14} color="#2D3748" style={{ lineHeight: 22 }}>
+          {event.description || "No special instructions provided for this event. Please reach out to staff with any questions."}
+        </Text>
+      </Card>
+
+      <Section title="Reminders" />
+      <Card>
+        <View style={s.between}>
+          <View style={s.row}>
+            <Bell size={20} color={reminded ? "#2D6A4F" : "#8A909B"} />
+            <Text size={14} weight="medium" style={{ marginLeft: 10 }}>
+              {reminded ? "Reminder set for this event" : "Set event notification"}
+            </Text>
+          </View>
+          <Button
+            title={reminded ? "Turn Off" : "Remind Me"}
+            variant={reminded ? "outline" : "primary"}
+            onPress={() => toggleReminder(event.id)}
+            style={{ minHeight: 36, paddingHorizontal: 14 }}
+          />
         </View>
       </Card>
-      {reminded && (
-        <Notice tone="success">
-          Saved to your reminders for this session.
-        </Notice>
-      )}
-      <Button
-        title={reminded ? "Reminder Added" : "Add Reminder"}
-        icon={Bell}
-        onPress={() => toggleReminder(event.id)}
-        style={{ marginTop: 26 }}
-      />
+
       <Button
         title="Message Daycare"
         icon={ChatCircle}
-        variant="outline"
-        onPress={() => navigation.navigate("CaregiverChat", { threadId: 2 })}
-        style={{ marginTop: 10 }}
+        variant="secondary"
+        onPress={() => navigation.navigate("CaregiverChat", { threadId: 1 })}
+        style={{ marginTop: 24, marginBottom: 20 }}
       />
     </Page>
   );

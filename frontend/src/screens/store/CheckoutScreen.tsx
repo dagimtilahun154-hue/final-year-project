@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { View, Pressable } from "react-native";
+import { View, Pressable, ActivityIndicator } from "react-native";
 import {
   Storefront,
   DeviceMobile,
-  Lock,
   CheckCircle,
+  WarningCircle,
 } from "phosphor-react-native";
 import {
   Page,
@@ -20,33 +20,63 @@ import { useChild } from "../../context/ChildContext";
 import { useDesign } from "../../context/DesignContext";
 import { artwork } from "../../theme/assets";
 import { formatMoney } from "./catalog";
+import { placeStoreOrder } from "../../api/parentApi";
+
 export function CheckoutScreen({ navigation }: any) {
-  const { cart, cartTotal, clearCart } = useChild();
+  const { selectedChild, cart, cartTotal, clearCart } = useChild();
   const { setOrder } = useDesign();
   const [method, setMethod] = useState<"pay_at_daycare" | "digital">(
     "pay_at_daycare",
   );
   const [note, setNote] = useState("");
-  const place = () => {
-    if (!cart.length) return;
-    const reference = "PREVIEW-" + Date.now().toString().slice(-6);
-    setOrder({
-      reference,
-      total: cartTotal,
-      method,
-      note,
-      items: cart.map((i) => ({
-        name: i.product.name,
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const childName = selectedChild?.full_name?.split(" ")[0] || "Child";
+  const groupName = selectedChild?.group_name || "Sunflower Group";
+
+  const handlePlaceOrder = async () => {
+    if (!cart.length || submitting) return;
+    setSubmitting(true);
+    setErrorMessage("");
+
+    try {
+      const orderItems = cart.map((i) => ({
+        product_id: i.product.id,
         quantity: i.quantity,
-        price: Number(i.product.price),
-      })),
-    });
-    clearCart();
-    navigation.replace("OrderConfirmation", {
-      orderRef: reference,
-      totalAmount: cartTotal,
-    });
+      }));
+
+      const created = await placeStoreOrder(orderItems);
+      const reference = `#ORD-${created.id}`;
+
+      setOrder({
+        reference,
+        total: Number(created.total),
+        method,
+        note,
+        items: (created.items || []).map((i) => ({
+          name: i.product_name,
+          quantity: i.quantity,
+          price: Number(i.unit_price),
+        })),
+      });
+
+      clearCart();
+      navigation.replace("OrderConfirmation", {
+        orderRef: reference,
+        totalAmount: Number(created.total),
+      });
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Could not place order. Please verify item availability.";
+      setErrorMessage(msg);
+    } finally {
+      setSubmitting(false);
+    }
   };
+
   return (
     <Page
       title="Checkout"
@@ -55,81 +85,92 @@ export function CheckoutScreen({ navigation }: any) {
       tabs
       activeTab="Profile"
     >
-      <Card style={{ marginBottom: 24 }}>
+      <Card style={{ marginBottom: 20 }}>
         <View style={s.row}>
-          <Avatar source={artwork.guardianChild} size={62} />
-          <View>
-            <Text size={11} color="#8C9199">
+          <Avatar
+            source={artwork.guardianChild}
+            initials={childName.slice(0, 2).toUpperCase()}
+            size={56}
+          />
+          <View style={{ marginLeft: 12 }}>
+            <Text size={11} color="#8C9199" style={{ letterSpacing: 0.5 }}>
               ORDER FOR
             </Text>
-            <Text size={20} weight="medium">
-              Liya
+            <Text size={18} weight="semibold">
+              {selectedChild?.full_name || childName}
             </Text>
             <Text size={13} color="#AC8C42">
-              Sunflower Group
+              {groupName}
             </Text>
           </View>
         </View>
       </Card>
+
       <Card>
         <View style={s.between}>
-          <Text size={19} weight="medium">
+          <Text size={18} weight="semibold">
             Order Summary
           </Text>
           <Pressable
             accessibilityRole="button"
             onPress={() => navigation.goBack()}
           >
-            <Text size={13} style={{ textDecorationLine: "underline" }}>
+            <Text size={13} style={{ textDecorationLine: "underline" }} color="#10263D">
               Edit Cart
             </Text>
           </Pressable>
         </View>
+
         {cart.map((i) => (
           <View
             key={i.product.id}
             style={{
-              paddingVertical: 20,
+              paddingVertical: 16,
               borderBottomWidth: 1,
               borderBottomColor: "#EDE9E3",
             }}
           >
             <View style={s.between}>
-              <Text>{i.product.name}</Text>
-              <Text>{formatMoney(Number(i.product.price) * i.quantity)}</Text>
+              <Text weight="medium">{i.product.name}</Text>
+              <Text weight="semibold">
+                {formatMoney(Number(i.product.price) * i.quantity)}
+              </Text>
             </View>
-            <Text size={13} color="#7A828F" style={{ marginTop: 7 }}>
-              Qty: {i.quantity}
+            <Text size={12} color="#7A828F" style={{ marginTop: 4 }}>
+              Qty: {i.quantity} × {formatMoney(Number(i.product.price))}
             </Text>
           </View>
         ))}
-        <View style={[s.between, { marginTop: 20 }]}>
+
+        <View style={[s.between, { marginTop: 18 }]}>
           <Text size={18} weight="semibold">
             Total
           </Text>
-          <Text size={18} weight="semibold">
+          <Text size={20} weight="bold" color="#10263D">
             {formatMoney(cartTotal)}
           </Text>
         </View>
       </Card>
+
       <Text
-        size={17}
-        weight="medium"
-        style={{ marginTop: 28, marginBottom: 14 }}
+        size={16}
+        weight="semibold"
+        style={{ marginTop: 24, marginBottom: 12 }}
       >
         Payment Method
       </Text>
+
       {[
         {
           key: "pay_at_daycare" as const,
           title: "Pay at Daycare",
-          text: "Complete payment at the daycare.",
+          text: "Collect your receipt and settle payment at the daycare office.",
           Icon: Storefront,
         },
         {
           key: "digital" as const,
-          title: "Digital Payment",
-          text: "Pay through the supported gateway.",
+          title: "Digital / Mobile Payment",
+          text: "Authorized mobile money or digital payment at pickup.",
           Icon: DeviceMobile,
         },
       ].map((p) => (
@@ -141,10 +182,10 @@ export function CheckoutScreen({ navigation }: any) {
           onPress={() => setMethod(p.key)}
           style={{
             borderWidth: method === p.key ? 2 : 1,
-            borderColor: method === p.key ? "#092036" : "#F1EDE5",
+            borderColor: method === p.key ? "#092036" : "#E8E5DD",
             backgroundColor: method === p.key ? "#F6F5ED" : "white",
-            borderRadius: 21,
-            padding: 17,
+            borderRadius: 18,
+            padding: 16,
             marginBottom: 10,
           }}
         >
@@ -159,6 +200,7 @@ export function CheckoutScreen({ navigation }: any) {
                 alignItems: "center",
                 justifyContent: "center",
                 marginTop: 3,
+                marginRight: 12,
               }}
             >
               {method === p.key && (
@@ -174,33 +216,43 @@ export function CheckoutScreen({ navigation }: any) {
             </View>
             <View style={{ flex: 1 }}>
               <View style={s.row}>
-                <p.Icon size={19} />
+                <p.Icon size={18} style={{ marginRight: 6 }} />
                 <Text weight="semibold">{p.title}</Text>
               </View>
-              <Text size={13} color="#7E8591" style={{ marginTop: 6 }}>
+              <Text size={12} color="#7E8591" style={{ marginTop: 4 }}>
                 {p.text}
               </Text>
             </View>
           </View>
         </Pressable>
       ))}
-      <View style={{ height: 16 }} />
+
+      <View style={{ height: 12 }} />
+
       <Field
         label="Order Note (Optional)"
-        placeholder="Add a note for the daycare…"
+        placeholder="Add special instructions or delivery details…"
         multiline
         value={note}
         onChangeText={setNote}
       />
+
+      {errorMessage ? (
+        <View style={{ marginTop: 8 }}>
+          <Notice tone="error">{errorMessage}</Notice>
+        </View>
+      ) : null}
+
       <Notice>
-        This is a design preview. No order or payment will be submitted.
+        Orders are prepared by the daycare facility and charged upon pickup confirmation.
       </Notice>
+
       <Button
-        title="Preview Order"
-        icon={CheckCircle}
-        disabled={!cart.length}
-        onPress={place}
-        style={{ marginTop: 20 }}
+        title={submitting ? "Placing Order…" : "Place Order"}
+        icon={submitting ? undefined : CheckCircle}
+        disabled={!cart.length || submitting}
+        onPress={handlePlaceOrder}
+        style={{ marginTop: 16, marginBottom: 24 }}
       />
     </Page>
   );

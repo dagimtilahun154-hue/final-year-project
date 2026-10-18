@@ -1,6 +1,6 @@
 import React from "react";
 import { View } from "react-native";
-import { CheckCircle, ArrowRight } from "phosphor-react-native";
+import { CheckCircle, ArrowRight, ShoppingBag } from "phosphor-react-native";
 import {
   Page,
   Text,
@@ -12,119 +12,131 @@ import {
   s,
 } from "../../components/design/System";
 import { useDesign } from "../../context/DesignContext";
+import { useChild } from "../../context/ChildContext";
 import { artwork } from "../../theme/assets";
 import { formatMoney } from "./catalog";
-export function OrderConfirmationScreen({ navigation }: any) {
+
+export function OrderConfirmationScreen({ navigation, route }: any) {
   const { order } = useDesign();
+  const { selectedChild } = useChild();
+
+  const orderRef = route.params?.orderRef || (order?.reference ? `#${order.reference}` : "#ORD-LATEST");
+  const totalAmount = route.params?.totalAmount || order?.total || 0;
+  const childName = selectedChild?.full_name || "Child";
+  const groupName = selectedChild?.group_name || "Early Learning";
+
   return (
     <Page tabs activeTab="Profile">
-      <View style={{ alignItems: "center", paddingVertical: 26 }}>
+      <View style={{ alignItems: "center", paddingVertical: 24 }}>
         <View
           style={{
-            width: 62,
-            height: 62,
-            borderRadius: 31,
-            backgroundColor: "#DDEAFD",
+            width: 64,
+            height: 64,
+            borderRadius: 32,
+            backgroundColor: "#E6F4EA",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <CheckCircle size={33} color="#0A2542" weight="fill" />
+          <CheckCircle size={36} color="#1E7E34" weight="fill" />
         </View>
         <Text
-          size={28}
+          size={26}
           weight="bold"
-          style={{ textAlign: "center", marginTop: 22 }}
+          style={{ textAlign: "center", marginTop: 18 }}
         >
-          Your Order Preview
+          Order Confirmed!
         </Text>
         <Text
           size={14}
           color="#7C8490"
-          style={{ textAlign: "center", marginTop: 10 }}
+          style={{ textAlign: "center", marginTop: 8 }}
         >
-          Everything in one place.
+          Your order has been recorded in the daycare system.
         </Text>
       </View>
-      {order ? (
-        <>
-          <Card tint="#F4F2F7">
-            <Text size={11} color="#848B96">
-              ORDER REFERENCE
+
+      <Card tint="#F4F6F8" style={{ padding: 18 }}>
+        <Text size={11} color="#848B96" style={{ letterSpacing: 0.5 }}>
+          ORDER REFERENCE
+        </Text>
+        <Text size={22} weight="bold" style={{ marginTop: 6, color: "#10263D" }}>
+          {orderRef}
+        </Text>
+        <Text size={12} color="#2B8A3E" weight="medium" style={{ marginTop: 6 }}>
+          ● Status: Placed · Awaiting daycare preparation
+        </Text>
+      </Card>
+
+      <Card style={{ marginTop: 16, padding: 16 }}>
+        <View style={s.row}>
+          <Avatar source={artwork.child} initials={childName.slice(0, 2).toUpperCase()} size={46} />
+          <View style={{ marginLeft: 12 }}>
+            <Text size={11} color="#8B919B">
+              ORDER ASSIGNED TO
             </Text>
-            <Text size={22} weight="semibold" style={{ marginTop: 7 }}>
-              #{order.reference}
+            <Text size={18} weight="semibold">
+              {childName}
             </Text>
-            <Text size={12} color="#8B919B" style={{ marginTop: 7 }}>
-              Preview · Not submitted
+            <Text size={12} color="#8B919B">
+              {groupName}
             </Text>
-          </Card>
-          <Card style={{ marginTop: 16 }}>
-            <View style={s.row}>
-              <Avatar source={artwork.child} />
-              <View>
-                <Text size={11} color="#8B919B">
-                  Order for
-                </Text>
-                <Text size={19} weight="semibold">
-                  Liya
-                </Text>
-                <Text size={12} color="#8B919B">
-                  Sunflower Group
-                </Text>
-              </View>
-            </View>
-          </Card>
-          <Card style={{ marginTop: 16 }}>
-            <Text size={20} weight="semibold" style={{ marginBottom: 18 }}>
-              Order Summary
-            </Text>
-            {order.items.map((i, index) => (
-              <View key={index} style={[s.between, { paddingVertical: 10 }]}>
-                <Text size={13} style={{ flex: 1 }}>
-                  {i.name} (Qty {i.quantity})
-                </Text>
-                <Text size={13}>{formatMoney(i.price * i.quantity)}</Text>
-              </View>
-            ))}
-            <View style={s.divider} />
-            <View style={s.between}>
-              <Text size={20} weight="semibold">
-                Total
+          </View>
+        </View>
+      </Card>
+
+      {order && order.items && order.items.length > 0 ? (
+        <Card style={{ marginTop: 16, padding: 18 }}>
+          <Text size={18} weight="semibold" style={{ marginBottom: 14 }}>
+            Order Items
+          </Text>
+          {order.items.map((i, index) => (
+            <View key={index} style={[s.between, { paddingVertical: 8 }]}>
+              <Text size={13} style={{ flex: 1 }}>
+                {i.name} (Qty {i.quantity})
               </Text>
-              <Text size={21} weight="bold">
-                {formatMoney(order.total)}
+              <Text size={13} weight="medium">
+                {formatMoney(i.price * i.quantity)}
               </Text>
             </View>
-          </Card>
-          <Card style={{ marginTop: 16 }}>
-            <View style={s.between}>
-              <Text size={19} weight="semibold">
-                Payment
-              </Text>
-              <Badge title="Not paid" tone="gold" />
-            </View>
-            <Text size={14} color="#7F8692" style={{ marginTop: 14 }}>
-              {order.method === "pay_at_daycare"
-                ? "Pay at Daycare"
-                : "Digital Payment"}
+          ))}
+          <View style={[s.divider, { marginVertical: 12 }]} />
+          <View style={s.between}>
+            <Text size={18} weight="semibold">
+              Total Amount
             </Text>
-          </Card>
-        </>
-      ) : (
-        <Notice>No order preview yet. Visit the store to get started.</Notice>
-      )}
+            <Text size={20} weight="bold" color="#10263D">
+              {formatMoney(totalAmount)}
+            </Text>
+          </View>
+        </Card>
+      ) : null}
+
+      <Card style={{ marginTop: 16, padding: 16 }}>
+        <View style={s.between}>
+          <Text size={17} weight="semibold">
+            Payment Method
+          </Text>
+          <Badge title="Pay at Pickup" tone="gold" />
+        </View>
+        <Text size={13} color="#6C7380" style={{ marginTop: 8 }}>
+          {order?.method === "digital"
+            ? "Digital mobile payment at daycare front desk."
+            : "Pay in person at daycare front desk upon collection."}
+        </Text>
+      </Card>
+
       <Button
-        title="View Orders"
+        title="View Order History"
         icon={ArrowRight}
         onPress={() => navigation.navigate("Orders")}
-        style={{ marginTop: 26 }}
+        style={{ marginTop: 24 }}
       />
       <Button
-        title="Back to Home"
+        title="Back to Daycare Home"
         variant="outline"
         onPress={() => navigation.navigate("MainTabs", { screen: "Home" })}
-        style={{ marginTop: 12 }}
+        style={{ marginTop: 10, marginBottom: 20 }}
       />
     </Page>
   );

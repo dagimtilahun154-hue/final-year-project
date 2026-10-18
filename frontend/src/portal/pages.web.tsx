@@ -285,12 +285,25 @@ export function Overview(ctx: PageContext) {
             </Button>
           </div>
           <Table
-            pageSize={5}
-            rows={m.rows.map(({ child, status }) => ({
-              ...child,
-              event_type: status?.event_type || "not_marked",
-              event_time: status?.event_time,
-            }))}
+            pageSize={6}
+            rows={m.rows.map(({ child, status }) => {
+              const guardian = data.guardians.find((g) => g.child_id === child.id);
+              const parentUser = guardian ? data.users.find((u) => u.id === guardian.user_id) : null;
+              const parentName = child.parent_name || parentUser?.name;
+              const parentEmail = child.parent_email || parentUser?.email;
+              const parentRel = child.parent_relationship || guardian?.relationship || "Parent";
+              const verification = data.verifications.find((v) => v.child_id === child.id && (status?.event_type === "checkout"));
+              const collectedBy = verification ? userName(data, verification.guardian_user_id) : parentName;
+              return {
+                ...child,
+                parentName,
+                parentEmail,
+                parentRel,
+                collectedBy,
+                event_type: status?.event_type || "not_marked",
+                event_time: status?.event_time,
+              };
+            })}
             columns={[
               {
                 key: "full_name",
@@ -303,21 +316,45 @@ export function Overview(ctx: PageContext) {
                 ),
               },
               {
-                key: "caregiver_id",
-                title: "Caregiver",
-                render: (r) => (
-                  <span>{userName(data, r.caregiver_id).split(" ")[0]}</span>
-                ),
+                key: "parentName",
+                title: "Parent / Guardian",
+                render: (r) => r.parentName ? (
+                  <div>
+                    <strong style={{ fontSize: "13px" }}>{r.parentName}</strong>{" "}
+                    <span style={{ fontSize: "11px", color: "#6B7280" }}>({r.parentRel})</span>
+                    {r.parentEmail && <div style={{ fontSize: "11px", color: "#6B7280" }}>{r.parentEmail}</div>}
+                  </div>
+                ) : <span style={{ color: "#9CA3AF" }}>—</span>,
               },
               {
                 key: "event_type",
                 title: "Status",
-                render: (r) => <Badge value={r.event_type} />,
+                render: (r) => {
+                  if (r.event_type === "checkin") return <Badge value="At daycare" tone="green" />;
+                  if (r.event_type === "checkout") return <Badge value={r.collectedBy ? `✓ Picked up by ${r.collectedBy}` : "✓ Checked out"} tone="blue" />;
+                  if (r.event_type === "absent") return <Badge value="Absent" tone="gold" />;
+                  return <Badge value="Not marked" tone="quiet" />;
+                },
               },
               {
                 key: "event_time",
-                title: "Last update",
-                render: (r) => localTime(r.event_time),
+                title: "Time",
+                render: (r) => r.event_time ? localTime(r.event_time) : "—",
+              },
+              {
+                key: "actions",
+                title: "Front Desk Action",
+                render: (r) => (
+                  <div className="p-row-actions">
+                    {r.event_type === "not_marked" ? (
+                      <Button variant="secondary small" onClick={() => open("checkin", r)}>Check in</Button>
+                    ) : r.event_type === "checkin" ? (
+                      <Button variant="secondary small" onClick={() => open("pickup", r)}>Verify & Checkout</Button>
+                    ) : (
+                      <Button variant="quiet" onClick={() => open("child-profile", r)}>Profile</Button>
+                    )}
+                  </div>
+                ),
               },
             ]}
           />
@@ -357,6 +394,106 @@ export function Overview(ctx: PageContext) {
           </div>
         </Card>
       </div>
+
+      <Card className="p-families-card">
+        <div className="p-card-head">
+          <div>
+            <h2>Families & children from parent registration</h2>
+            <p>Live parent accounts, child enrollment, groups, allergies, and daily check-in / check-out status</p>
+          </div>
+          <Button variant="quiet" onClick={() => go("children")}>
+            View full registry <Icon name="arrow" size={15} />
+          </Button>
+        </div>
+        <Table
+          pageSize={6}
+          rows={data.children.map((c) => {
+            const guardian = data.guardians.find((g) => g.child_id === c.id);
+            const parentUser = guardian ? data.users.find((u) => u.id === guardian.user_id) : null;
+            const parentName = c.parent_name || parentUser?.name || "Unlinked";
+            const parentEmail = c.parent_email || parentUser?.email || "—";
+            const relationship = c.parent_relationship || guardian?.relationship || "Parent";
+            const allergies = (c.care_instructions || []).filter((ci: any) => ci.category === "allergy");
+            const allergyText = allergies.length > 0
+              ? allergies.map((a: any) => a.instruction_text.split("—")[0].trim()).join(", ")
+              : "No known allergies";
+            const att = m.rows.find((mr) => mr.child.id === c.id);
+            const event_type = att?.status?.event_type || "not_marked";
+            const event_time = att?.status?.event_time;
+            const verification = data.verifications.find((v) => v.child_id === c.id && event_type === "checkout");
+            const collectedBy = verification ? userName(data, verification.guardian_user_id) : parentName;
+            return {
+              ...c,
+              parentDisplay: `${parentName} (${relationship})`,
+              parentEmail,
+              allergyText,
+              hasAllergies: allergies.length > 0,
+              event_type,
+              event_time,
+              collectedBy,
+            };
+          })}
+          columns={[
+            {
+              key: "full_name",
+              title: "Child Name",
+              render: (r) => (
+                <Person
+                  name={r.full_name}
+                  sub={`DOB: ${dayOf(r.dob)} · ${groupName(data, r.group_id)}`}
+                />
+              ),
+            },
+            {
+              key: "parentDisplay",
+              title: "Parent / Guardian",
+              render: (r) => (
+                <div>
+                  <strong style={{ fontSize: "13px" }}>{r.parentDisplay}</strong>
+                  <div style={{ fontSize: "11px", color: "#6B7280" }}>{r.parentEmail}</div>
+                </div>
+              ),
+            },
+            {
+              key: "allergyText",
+              title: "Allergies & Dietary",
+              render: (r) => (
+                <Badge
+                  value={r.allergyText}
+                  tone={r.hasAllergies ? "gold" : "green"}
+                />
+              ),
+            },
+            {
+              key: "event_type",
+              title: "Today's Attendance",
+              render: (r) => {
+                if (r.event_type === "checkin") return <Badge value="At daycare" tone="green" />;
+                if (r.event_type === "checkout") return <Badge value={r.collectedBy ? `✓ Picked up by ${r.collectedBy}` : "✓ Checked out"} tone="blue" />;
+                if (r.event_type === "absent") return <Badge value="Absent" tone="gold" />;
+                return <Badge value="Not marked" tone="quiet" />;
+              },
+            },
+            {
+              key: "actions",
+              title: "Actions",
+              render: (r) => (
+                <div className="p-row-actions">
+                  {r.event_type === "not_marked" ? (
+                    <Button variant="secondary small" onClick={() => open("checkin", r)}>Check in</Button>
+                  ) : r.event_type === "checkin" ? (
+                    <Button variant="secondary small" onClick={() => open("pickup", r)}>Checkout</Button>
+                  ) : null}
+                  <Button variant="quiet" onClick={() => open("child-profile", r)}>
+                    Profile
+                  </Button>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </Card>
+
       <div className="p-grid main">
         <Card>
           <div className="p-card-head">
@@ -597,51 +734,36 @@ export function Analytics({ data, date }: PageContext) {
     </>
   );
 }
-export function Registry(ctx: PageContext) {
+export function Caregivers(ctx: PageContext) {
   const { data, query, open } = ctx;
-  const [role, setRole] = useState("caregiver");
   const [status, setStatus] = useState("");
+  const caregivers = data.users.filter((u) => u.role === "caregiver");
   const rows = search(
-    data.users.filter(
-      (u) => u.role === role && (!status || u.status === status),
-    ),
+    caregivers.filter((u) => !status || u.status === status),
     query,
   );
   return (
     <Card>
       <div className="p-card-head">
         <div>
-          <h2>People who make care possible</h2>
+          <h2>Caregivers & Staff Members</h2>
           <p>
-            {rows.length}{" "}
-            {role === "parent" ? "parents & guardians" : "caregivers"}
+            {rows.length} professional educators and caregivers supporting child development
           </p>
         </div>
-        <Button icon="plus" onClick={() => open("user", { id: 0, role })}>
-          Register {role === "parent" ? "parent" : "caregiver"}
+        <Button icon="plus" onClick={() => open("caregiver", { id: 0, role: "caregiver" })}>
+          Register Caregiver
         </Button>
       </div>
       <div className="p-filters">
-        <div className="p-tabs" style={{ margin: 0 }}>
-          {["caregiver", "parent"].map((r) => (
-            <button
-              key={r}
-              aria-pressed={role === r}
-              className={role === r ? "active" : ""}
-              onClick={() => setRole(r)}
-            >
-              {r === "parent" ? "Parents & guardians" : "Caregivers"}
-            </button>
-          ))}
-        </div>
         <select
-          aria-label="Account status"
+          aria-label="Caregiver status"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
         >
           <option value="">All statuses</option>
-          <option>active</option>
-          <option>inactive</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
         </select>
       </div>
       <Table
@@ -649,17 +771,64 @@ export function Registry(ctx: PageContext) {
         columns={[
           {
             key: "name",
-            title: "Name",
-            render: (r) => <Person name={r.name} sub={r.email} />,
+            title: "Staff Member",
+            render: (r) => (
+              <Person
+                name={r.name}
+                sub={r.email + (r.phone ? " · Tel: " + r.phone : "")}
+              />
+            ),
           },
-          { key: "role", title: "Role", render: (r) => label(r.role) },
+          {
+            key: "title",
+            title: "Role & Shift",
+            render: (r) => (
+              <div>
+                <strong style={{ fontSize: "13px", color: "var(--navy)" }}>{r.title || "Caregiver / Educator"}</strong>
+                {r.shift && (
+                  <div style={{ fontSize: "11px", color: "#6B7280", marginTop: "2px", display: "flex", alignItems: "center", gap: 4 }}>
+                    <Icon name="clock" size={12} /> {r.shift}
+                  </div>
+                )}
+              </div>
+            ),
+          },
+          {
+            key: "qualifications",
+            title: "Qualifications & Credentials",
+            render: (r) =>
+              r.qualifications ? (
+                <div style={{ fontSize: "12px", color: "#374151", maxWidth: 240, lineHeight: "1.3" }}>
+                  {r.qualifications}
+                </div>
+              ) : (
+                <span style={{ color: "#9CA3AF" }}>—</span>
+              ),
+          },
           {
             key: "linked",
-            title: role === "parent" ? "Linked children" : "Assigned children",
+            title: "Assigned Children",
+            render: (r) => {
+              const count = data.children.filter((c) => c.caregiver_id === r.id).length;
+              return (
+                <Badge
+                  value={`${count} ${count === 1 ? "child" : "children"}`}
+                  tone={count > 0 ? "green" : "quiet"}
+                />
+              );
+            },
+          },
+          {
+            key: "emergency_contact",
+            title: "Staff Emergency Contact",
             render: (r) =>
-              role === "parent"
-                ? data.guardians.filter((g) => g.user_id === r.id).length
-                : data.children.filter((c) => c.caregiver_id === r.id).length,
+              r.emergency_contact ? (
+                <span style={{ fontSize: "12px", color: "#4B5563", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <Icon name="phone" size={12} /> {r.emergency_contact}
+                </span>
+              ) : (
+                <span style={{ color: "#9CA3AF" }}>—</span>
+              ),
           },
           {
             key: "status",
@@ -671,8 +840,8 @@ export function Registry(ctx: PageContext) {
             title: "Actions",
             render: (r) => (
               <div className="p-row-actions">
-                <Button variant="quiet" onClick={() => open("user", r)}>
-                  Edit
+                <Button variant="quiet" onClick={() => open("caregiver", r)}>
+                  Edit Profile
                 </Button>
                 <Button variant="quiet" onClick={() => open("user-status", r)}>
                   {r.status === "active" ? "Deactivate" : "Activate"}
@@ -685,6 +854,8 @@ export function Registry(ctx: PageContext) {
     </Card>
   );
 }
+export const Registry = Caregivers;
+
 export function Children(ctx: PageContext) {
   const { data, query, open } = ctx;
   const [group, setGroup] = useState("");
@@ -693,12 +864,17 @@ export function Children(ctx: PageContext) {
     <Card>
       <div className="p-card-head">
         <div>
-          <h2>A place for every little learner</h2>
-          <p>Student profiles, families and care assignments</p>
+          <h2>Children & Families</h2>
+          <p>Enrolled children, linked guardians, emergency contacts and medical notes</p>
         </div>
-        <Button icon="plus" onClick={() => open("child")}>
-          Register child
-        </Button>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+          <Button icon="plus" onClick={() => open("family")}>
+            Enroll New Family
+          </Button>
+          <Button variant="secondary" onClick={() => open("child")}>
+            Add Sibling / Child
+          </Button>
+        </div>
       </div>
       <div className="p-filters">
         <select
@@ -745,6 +921,47 @@ export function Children(ctx: PageContext) {
             key: "group_id",
             title: "Group",
             render: (r) => groupName(data, r.group_id),
+          },
+          {
+            key: "parent_name",
+            title: "Parent / Guardian",
+            render: (r) => {
+              const guardian = data.guardians.find((g) => g.child_id === r.id);
+              const parentUser = guardian ? data.users.find((u) => u.id === guardian.user_id) : null;
+              const name = r.parent_name || parentUser?.name;
+              const email = r.parent_email || parentUser?.email;
+              const rel = r.parent_relationship || guardian?.relationship;
+              const phone = r.parent_phone || parentUser?.phone || (r.emergency_contacts && r.emergency_contacts[0]?.phone);
+              if (!name) return <span style={{ color: "#9CA3AF" }}>Unlinked</span>;
+              return (
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: "13px" }}>{name} {rel ? `(${rel})` : ""}</div>
+                  {phone && (
+                    <div style={{ fontSize: "11px", color: "var(--navy)", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                      <Icon name="phone" size={12} /> {phone}
+                    </div>
+                  )}
+                  {email && <div style={{ fontSize: "11px", color: "#6B7280" }}>{email}</div>}
+                </div>
+              );
+            },
+          },
+          {
+            key: "care_instructions",
+            title: "Allergies & Care",
+            render: (r) => {
+              const allergies = (r.care_instructions || []).filter((c: any) => c.category === "allergy");
+              if (allergies.length > 0) {
+                return (
+                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                    {allergies.map((a: any, i: number) => (
+                      <Badge key={i} value={a.instruction_text.split("—")[0].trim()} tone="gold" />
+                    ))}
+                  </div>
+                );
+              }
+              return <span style={{ fontSize: "12px", color: "#10B981", fontWeight: 600 }}>✓ No known allergies</span>;
+            },
           },
           {
             key: "caregiver_id",
@@ -981,11 +1198,26 @@ export function Attendance(ctx: PageContext) {
         <Table
           rows={search(
             m.rows
-              .map(({ child, status }) => ({
-                ...child,
-                event_type: status?.event_type || "not_marked",
-                event_time: status?.event_time,
-              }))
+              .map(({ child, status }) => {
+                const guardian = data.guardians.find((g) => g.child_id === child.id);
+                const parentUser = guardian ? data.users.find((u) => u.id === guardian.user_id) : null;
+                const parentName = child.parent_name || parentUser?.name;
+                const parentEmail = child.parent_email || parentUser?.email;
+                const parentRel = child.parent_relationship || guardian?.relationship || "Parent";
+                const verification = data.verifications.find((v) => v.child_id === child.id && (status?.event_type === "checkout"));
+                const collectedBy = verification ? userName(data, verification.guardian_user_id) : parentName;
+                const allergies = (child.care_instructions || []).filter((ci: any) => ci.category === "allergy");
+                return {
+                  ...child,
+                  parentName,
+                  parentEmail,
+                  parentRel,
+                  collectedBy,
+                  allergies,
+                  event_type: status?.event_type || "not_marked",
+                  event_time: status?.event_time,
+                };
+              })
               .filter((r) => !status || r.event_type === status),
             query,
           )}
@@ -998,18 +1230,50 @@ export function Attendance(ctx: PageContext) {
               ),
             },
             {
+              key: "parentName",
+              title: "Parent / Guardian",
+              render: (r) => r.parentName ? (
+                <div>
+                  <strong style={{ fontSize: "13px" }}>{r.parentName}</strong>{" "}
+                  <span style={{ fontSize: "11px", color: "#6B7280" }}>({r.parentRel})</span>
+                  {r.parentEmail && <div style={{ fontSize: "11px", color: "#6B7280" }}>{r.parentEmail}</div>}
+                </div>
+              ) : <span style={{ color: "#9CA3AF" }}>Unlinked</span>,
+            },
+            {
+              key: "allergies",
+              title: "Safety & Care",
+              render: (r) => {
+                if (r.allergies && r.allergies.length > 0) {
+                  return (
+                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                      {r.allergies.map((a: any, i: number) => (
+                        <Badge key={i} value={a.instruction_text.split("—")[0].trim()} tone="gold" />
+                      ))}
+                    </div>
+                  );
+                }
+                return <span style={{ fontSize: "12px", color: "#10B981", fontWeight: 600 }}>✓ Safe</span>;
+              },
+            },
+            {
               key: "event_type",
-              title: "Status",
-              render: (r) => <Badge value={r.event_type} />,
+              title: "Attendance Status",
+              render: (r) => {
+                if (r.event_type === "checkin") return <Badge value="At daycare" tone="green" />;
+                if (r.event_type === "checkout") return <Badge value={r.collectedBy ? `✓ Picked up by ${r.collectedBy}` : "✓ Checked out"} tone="blue" />;
+                if (r.event_type === "absent") return <Badge value="Absent" tone="gold" />;
+                return <Badge value="Not marked" tone="quiet" />;
+              },
             },
             {
               key: "event_time",
               title: "Last update",
-              render: (r) => localTime(r.event_time),
+              render: (r) => r.event_time ? localTime(r.event_time) : "—",
             },
             {
               key: "actions",
-              title: "Actions",
+              title: "Front Desk Actions",
               render: (r) => (
                 <div className="p-row-actions">
                   {r.event_type === "not_marked" ? (
@@ -1038,12 +1302,20 @@ export function Attendance(ctx: PageContext) {
                       Verify pickup
                     </Button>
                   ) : (
-                    <Button
-                      variant="quiet"
-                      onClick={() => open("attendance-history", r)}
-                    >
-                      History
-                    </Button>
+                    <>
+                      <Button
+                        variant="quiet"
+                        onClick={() => open("child-profile", r)}
+                      >
+                        Profile
+                      </Button>
+                      <Button
+                        variant="quiet"
+                        onClick={() => open("attendance-history", r)}
+                      >
+                        History
+                      </Button>
+                    </>
                   )}
                 </div>
               ),

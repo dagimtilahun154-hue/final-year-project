@@ -10,12 +10,18 @@ const db = require('../../config/db');
  * List upcoming non-cancelled events.
  * Uses idx_evt_active_future partial index.
  */
-const listEvents = async (query = {}) => {
+/**
+ * List upcoming non-cancelled events.
+ * Uses idx_evt_active_future partial index.
+ */
+const listEvents = async (query = {}, user) => {
   const typeFilter = query.type || null;
   const includePast = query.include_past === 'true';
+  const isSuper = user && user.role === 'super_admin';
+  const daycareId = user?.daycare_id || null;
 
   let sql = `
-    SELECT e.id, e.title, e.event_date, e.event_time, e.description, e.event_type, e.cancelled, e.updated_at,
+    SELECT e.id, e.title, e.event_date, e.event_time, e.description, e.event_type, e.cancelled, e.updated_at, e.daycare_id,
            u.name AS created_by_name
     FROM events e
     JOIN users u ON u.id = e.created_by
@@ -30,6 +36,10 @@ const listEvents = async (query = {}) => {
     params.push(typeFilter);
     sql += ` AND e.event_type = $${params.length}`;
   }
+  if (!isSuper) {
+    params.push(daycareId);
+    sql += ` AND (e.daycare_id = $${params.length})`;
+  }
 
   sql += ` ORDER BY e.event_date ASC, e.event_time ASC NULLS LAST`;
 
@@ -41,9 +51,10 @@ const listEvents = async (query = {}) => {
  * Create a new event (Admin only).
  */
 const createEvent = async (body, user) => {
+  const daycareId = user.role === 'super_admin' ? (body.daycare_id || null) : user.daycare_id;
   const { rows } = await db.query(
-    `INSERT INTO events (created_by, title, event_date, event_time, description, event_type)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO events (created_by, title, event_date, event_time, description, event_type, daycare_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
     [
       user.id,
@@ -52,6 +63,7 @@ const createEvent = async (body, user) => {
       body.event_time || null,
       body.description || null,
       body.event_type,
+      daycareId,
     ]
   );
   return rows[0];
@@ -60,8 +72,24 @@ const createEvent = async (body, user) => {
 /**
  * Update event details (Admin only).
  */
-const updateEvent = async (eventIdParam, body) => {
+const updateEvent = async (eventIdParam, body, user) => {
   const eventId = parseInt(eventIdParam, 10);
+
+  const { rows: existingRows } = await db.query(
+    `SELECT id, daycare_id FROM events WHERE id = $1 AND cancelled = FALSE`,
+    [eventId]
+  );
+  if (existingRows.length === 0) {
+    const err = new Error('Event not found or cancelled');
+    err.statusCode = 404;
+    throw err;
+  }
+  const existing = existingRows[0];
+  if (!user?.daycare_id || existing.daycare_id !== user.daycare_id) {
+    const err = new Error('Event not found or cancelled');
+    err.statusCode = 404;
+    throw err;
+  }
 
   const fields = [];
   const vals = [];
@@ -87,31 +115,35 @@ const updateEvent = async (eventIdParam, body) => {
     vals
   );
 
-  if (rows.length === 0) {
-    const err = new Error('Event not found or cancelled');
-    err.statusCode = 404;
-    throw err;
-  }
-
   return rows[0];
 };
 
 /**
  * Soft-delete an event by setting cancelled = TRUE (Admin only).
  */
-const cancelEvent = async (eventIdParam) => {
+const cancelEvent = async (eventIdParam, user) => {
   const eventId = parseInt(eventIdParam, 10);
+
+  const { rows: existingRows } = await db.query(
+    `SELECT id, daycare_id FROM events WHERE id = $1`,
+    [eventId]
+  );
+  if (existingRows.length === 0) {
+    const err = new Error('Event not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const existing = existingRows[0];
+  if (!user?.daycare_id || existing.daycare_id !== user.daycare_id) {
+    const err = new Error('Event not found');
+    err.statusCode = 404;
+    throw err;
+  }
 
   const { rows } = await db.query(
     `UPDATE events SET cancelled = TRUE, updated_at = NOW() WHERE id = $1 RETURNING *`,
     [eventId]
   );
-
-  if (rows.length === 0) {
-    const err = new Error('Event not found');
-    err.statusCode = 404;
-    throw err;
-  }
 
   return { message: 'Event successfully cancelled', event: rows[0] };
 };

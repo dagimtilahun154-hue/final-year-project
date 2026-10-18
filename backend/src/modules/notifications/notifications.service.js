@@ -5,8 +5,12 @@
  * Computes badge counts and aggregates recent items for navigation headers.
  */
 const db = require('../../config/db');
+const { listAlerts } = require('../communication/communication.service');
 
 const getNotifications = async (user) => {
+  if (!user?.daycare_id || !['admin', 'caregiver', 'parent'].includes(user.role)) {
+    throw Object.assign(new Error('Daycare account required'), { statusCode: 403 });
+  }
   const userId = user.id;
   const userRole = user.role;
 
@@ -14,8 +18,8 @@ const getNotifications = async (user) => {
   const { rows: unreadMsgRows } = await db.query(
     `SELECT COUNT(*)::int AS count
      FROM messages
-     WHERE recipient_id = $1 AND read_at IS NULL`,
-    [userId]
+     WHERE recipient_id = $1 AND daycare_id = $2 AND read_at IS NULL`,
+    [userId, user.daycare_id]
   );
   const unreadMessagesCount = unreadMsgRows[0]?.count || 0;
 
@@ -24,30 +28,16 @@ const getNotifications = async (user) => {
     `SELECT m.id, m.sender_id, u.name AS sender_name, m.subject, m.body, m.created_at
      FROM messages m
      JOIN users u ON u.id = m.sender_id
-     WHERE m.recipient_id = $1 AND m.read_at IS NULL
+     WHERE m.recipient_id = $1 AND m.daycare_id = $2 AND m.read_at IS NULL
      ORDER BY m.created_at DESC
      LIMIT 5`,
-    [userId]
+    [userId, user.daycare_id]
   );
 
-  // 2. Active alerts applicable to this user (scope = 'all' or targeted to this user)
-  const { rows: alertCountRows } = await db.query(
-    `SELECT COUNT(*)::int AS count
-     FROM alerts
-     WHERE recipient_scope = 'all' OR target_user_id = $1`,
-    [userId]
-  );
-  const activeAlertsCount = alertCountRows[0]?.count || 0;
-
-  // Recent alerts (up to 5)
-  const { rows: recentAlerts } = await db.query(
-    `SELECT id, title, urgency, recipient_scope, created_at
-     FROM alerts
-     WHERE recipient_scope = 'all' OR target_user_id = $1
-     ORDER BY created_at DESC
-     LIMIT 5`,
-    [userId]
-  );
+  // Use the same tenant and audience policy as the alerts endpoint.
+  const { data: alerts } = await listAlerts(user);
+  const activeAlertsCount = alerts.length;
+  const recentAlerts = alerts.slice(0, 5);
 
   let unnotifiedHealthCount = 0;
   let unpaidOrdersCount = 0;
@@ -57,8 +47,11 @@ const getNotifications = async (user) => {
     // Unnotified health/incident records (FR-HIR-04)
     const { rows: healthRows } = await db.query(
       `SELECT COUNT(*)::int AS count
-       FROM health_records
-       WHERE parent_notified = FALSE`
+       FROM health_records h
+       JOIN children c ON c.id = h.child_id AND c.daycare_id = h.daycare_id
+       WHERE h.parent_notified = FALSE AND h.daycare_id = $1
+         AND ($2::text = 'admin' OR c.caregiver_id = $3)`,
+      [user.daycare_id, userRole, userId]
     );
     unnotifiedHealthCount = healthRows[0]?.count || 0;
   }
@@ -68,8 +61,8 @@ const getNotifications = async (user) => {
     const { rows: orderRows } = await db.query(
       `SELECT COUNT(*)::int AS count
        FROM orders
-       WHERE parent_id = $1 AND payment_status = 'unpaid' AND order_status != 'cancelled'`,
-      [userId]
+       WHERE parent_id = $1 AND daycare_id = $2 AND payment_status = 'unpaid' AND order_status != 'cancelled'`,
+      [userId, user.daycare_id]
     );
     unpaidOrdersCount = orderRows[0]?.count || 0;
   }

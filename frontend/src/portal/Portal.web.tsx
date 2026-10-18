@@ -15,9 +15,11 @@ import {
   today,
 } from "./model";
 import { portalApi, apiError } from "./api";
+import { isPortalPreviewPath } from "./previewPolicy";
 import {
   Analytics,
   Attendance,
+  Caregivers,
   Children,
   Duties,
   Groups,
@@ -47,8 +49,8 @@ const nav = [
     items: [
       ["dashboard", "Overview", "home"],
       ["analytics", "Analytics", "chart"],
-      ["children", "Children & enrollment", "child"],
-      ["users", "Caregivers & parents", "people"],
+      ["children", "Children & Families", "child"],
+      ["caregivers", "Caregivers & Staff", "people"],
       ["groups", "Groups & classrooms", "leaf"],
     ],
   },
@@ -76,8 +78,9 @@ const nav = [
 const subtitles: Record<string, string> = {
   dashboard: "A thoughtful overview of your daycare, all in one place.",
   analytics: "Understand the patterns behind each day of care.",
-  children: "Every child, their family and the people caring for them.",
-  users: "Personal accounts for the people in your daycare community.",
+  children: "Enrolled children, their linked families, emergency contacts, and care plans.",
+  caregivers: "Professional staff profiles, qualifications, assigned groups, and shift schedules.",
+  users: "Professional staff profiles, qualifications, assigned groups, and shift schedules.",
   groups: "A little organization. More room to grow.",
   "front-desk":
     "Plan coverage and give each caregiver the right responsibilities.",
@@ -95,19 +98,41 @@ const subtitles: Record<string, string> = {
 const num = (value: any) => (value ? Number(value) : null);
 const options = (rows: Row[], key = "name") =>
   rows.map((r) => ({ value: String(r.id), label: r[key] }));
-function Brand() {
+function Brand({ daycareName, plan, trialEndsAt }: { daycareName?: string; plan?: string; trialEndsAt?: string | null }) {
+  const daysLeft = trialEndsAt ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : null;
   return (
-    <div className="p-brand">
-      <img src={typeof logo === "string" ? logo : logo.uri} alt="Ankelba" />
-      <span>
-        Ankelba<small>GROWING TOGETHER</small>
-      </span>
+    <div className="p-brand" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8, paddingBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+        <img src={typeof logo === "string" ? logo : logo.uri} alt="Ankelba" />
+        <span>
+          Ankelba<small>GROWING TOGETHER</small>
+        </span>
+      </div>
+      {daycareName && (
+        <div style={{
+          width: "100%",
+          padding: "8px 10px",
+          background: "#fff",
+          borderRadius: 10,
+          border: "1px solid #e8e5dc",
+          boxSizing: "border-box",
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--navy)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon name="building" size={14} /> <span>{daycareName}</span>
+          </div>
+          {plan && (
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--green)", textTransform: "capitalize", marginTop: 2 }}>
+              ● {plan} Plan {daysLeft !== null ? `(${daysLeft}d trial)` : ""}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 export default function Portal() {
   const path = window.location.pathname;
-  const preview = __DEV__ && /^\/(admin|staff)\/preview(\/|$)/.test(path);
+  const preview = __DEV__ && isPortalPreviewPath(path);
   const startStaff = path.startsWith("/staff");
   const [actor, setActor] = useState<Row | null>(
     preview
@@ -145,9 +170,10 @@ export default function Portal() {
         },
       ]
     : nav;
-  const available = navigation.flatMap((g) => g.items).map((i) => i[0]);
-  const selected = available.includes(page)
-    ? page
+  const available = [...navigation.flatMap((g) => g.items).map((i) => i[0]), "users", "caregivers"];
+  const normalizedPage = page === "users" ? "caregivers" : page;
+  const selected = available.includes(normalizedPage)
+    ? normalizedPage
     : staff
       ? "workspace"
       : "dashboard";
@@ -178,19 +204,29 @@ export default function Portal() {
   useEffect(() => {
     if (preview) return;
     let active = true;
-    portalApi
-      .session()
-      .then((user) => {
-        if (active) setActor(user);
-      })
-      .catch(() => {})
-      .finally(() => {
+    (async () => {
+      try {
+        let user = await portalApi.session();
+        if (user && user.role === "parent") {
+          user = null;
+        }
+        if (user && user.role === "super_admin") {
+          window.location.assign("/super-admin");
+          return;
+        }
+        if (active && user) {
+          setActor(user);
+        }
+      } catch (err) {
+        console.warn("Portal session check error:", err);
+      } finally {
         if (active) setChecking(false);
-      });
+      }
+    })();
     return () => {
       active = false;
     };
-  }, []);
+  }, [preview]);
   const refresh = async () => {
     if (preview || !actor) return;
     const request = ++loadingRequest.current;
@@ -202,8 +238,10 @@ export default function Portal() {
     } catch (error: any) {
       if (request !== loadingRequest.current) return;
       if (error.response?.status === 401) {
-        setActor(null);
-        setLoginError("Your session has ended. Please sign in again.");
+        if (!preview) {
+          setActor(null);
+          setLoginError("Your session has ended. Please sign in again.");
+        }
       } else setLoadError(apiError(error));
     } finally {
       if (request === loadingRequest.current) setLoading(false);
@@ -223,20 +261,20 @@ export default function Portal() {
     const timer = setTimeout(() => setToast(""), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
-  const login = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const submitLogin = async (email: string, pass: string) => {
+    if (preview) return;
     setLoginBusy(true);
     setLoginError("");
-    const values = new FormData(e.currentTarget);
     try {
-      const user = await portalApi.login(
-        String(values.get("email")).trim(),
-        String(values.get("password")),
-      );
+      const user = await portalApi.login(email.trim(), pass);
       if (user.role === "parent") {
         setLoginError(
           "This workspace is for daycare staff. Open the parent app below.",
         );
+        return;
+      }
+      if (user.role === "super_admin") {
+        window.location.assign("/super-admin");
         return;
       }
       setActor(user);
@@ -251,6 +289,14 @@ export default function Portal() {
     } finally {
       setLoginBusy(false);
     }
+  };
+  const login = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const values = new FormData(e.currentTarget);
+    await submitLogin(
+      String(values.get("email")),
+      String(values.get("password")),
+    );
   };
   const signOut = async () => {
     if (preview) {
@@ -285,10 +331,7 @@ export default function Portal() {
             {
               id: Date.now(),
               actor_id: actor!.id,
-              action: path
-                .replace(/^\//, "")
-                .replaceAll("/", "_")
-                .toUpperCase(),
+              action: path.replace(/^\//, "").replaceAll("/", "_").toUpperCase(),
               target_table: path.split("/")[1],
               target_id: body.id || null,
               created_at: new Date().toISOString(),
@@ -297,15 +340,12 @@ export default function Portal() {
           ],
         };
       });
-    } else {
-      await portalApi.save(path, body, method);
-      await refresh();
+      setToast("Saved in local preview.");
+      return;
     }
-    setToast(
-      preview
-        ? "Saved in this preview. No live records changed."
-        : "Saved successfully.",
-    );
+    await portalApi.save(path, body, method);
+    await refresh();
+    setToast("Saved successfully.");
   };
   const upsert = (key: keyof Dataset, row: Row) => (d: Dataset) => ({
     ...d,
@@ -320,7 +360,7 @@ export default function Portal() {
     setFormError("");
     const { kind, row } = modal;
     try {
-      if (kind === "user") {
+      if (kind === "caregiver" || (kind === "user" && row.role === "caregiver")) {
         if (!values.name?.trim() || !values.email?.trim())
           throw Error("Name and email are required.");
         if (
@@ -336,9 +376,14 @@ export default function Portal() {
         const body: any = {
           name: values.name.trim(),
           email: values.email.trim().toLowerCase(),
+          phone: values.phone?.trim() || null,
+          title: values.title?.trim() || null,
+          shift: values.shift?.trim() || null,
+          qualifications: values.qualifications?.trim() || null,
+          emergency_contact: values.emergency_contact?.trim() || null,
         };
         if (!row.id) {
-          body.role = row.role || "caregiver";
+          body.role = "caregiver";
           body.password = values.password;
         }
         await mutate(
@@ -348,11 +393,107 @@ export default function Portal() {
             id: row.id,
             name: body.name,
             email: body.email,
-            role: row.role || "caregiver",
+            phone: body.phone,
+            title: body.title,
+            shift: body.shift,
+            qualifications: body.qualifications,
+            emergency_contact: body.emergency_contact,
+            role: "caregiver",
             status: row.status || "active",
           }),
           row.id ? "patch" : "post",
         );
+      } else if (kind === "family") {
+        if (!values.parent_name?.trim() || !values.parent_email?.trim())
+          throw Error("Parent full name and email are required.");
+        if (!values.child_full_name?.trim() || !values.child_dob)
+          throw Error("Child name and birth date are required.");
+        if (values.child_dob > today())
+          throw Error("Birth date cannot be in the future.");
+        if (!preview && String(values.parent_password || "").length < 8)
+          throw Error("Set a parent app password of at least 8 characters.");
+
+        const payload = {
+          parent: {
+            name: values.parent_name.trim(),
+            email: values.parent_email.trim().toLowerCase(),
+            phone: values.parent_phone?.trim() || null,
+            password: values.parent_password || "Password123!",
+            relationship: values.parent_relationship || "Mother",
+          },
+          child: {
+            full_name: values.child_full_name.trim(),
+            dob: values.child_dob,
+            gender: values.child_gender || null,
+            group_id: num(values.child_group_id),
+            caregiver_id: num(values.child_caregiver_id),
+            enrollment_status: "active",
+          },
+          emergency_contacts: values.sec_contact_name?.trim() ? [
+            {
+              name: values.sec_contact_name.trim(),
+              relationship: values.sec_contact_relationship?.trim() || "Emergency Contact",
+              phone: values.sec_contact_phone?.trim() || "",
+            }
+          ] : [],
+          care_instructions: [
+            ...(values.allergy_note?.trim() ? [{ category: "allergy", instruction_text: values.allergy_note.trim() }] : []),
+            ...(values.care_note?.trim() ? [{ category: "general", instruction_text: values.care_note.trim() }] : []),
+          ],
+        };
+
+        if (preview) {
+          const parentId = Date.now();
+          const childId = parentId + 1;
+          const newParent = {
+            id: parentId,
+            name: payload.parent.name,
+            email: payload.parent.email,
+            phone: payload.parent.phone,
+            role: "parent",
+            status: "active",
+          };
+          const newChild = {
+            id: childId,
+            full_name: payload.child.full_name,
+            dob: payload.child.dob,
+            gender: payload.child.gender,
+            group_id: payload.child.group_id,
+            caregiver_id: payload.child.caregiver_id,
+            enrollment_status: "active",
+            parent_name: payload.parent.name,
+            parent_email: payload.parent.email,
+            parent_phone: payload.parent.phone,
+            parent_relationship: payload.parent.relationship,
+            emergency_contacts: [
+              ...(payload.parent.phone ? [{ id: Date.now() + 2, child_id: childId, name: payload.parent.name, relationship: payload.parent.relationship, phone: payload.parent.phone }] : []),
+              ...payload.emergency_contacts.map((c, i) => ({ id: Date.now() + 3 + i, child_id: childId, ...c })),
+            ],
+            care_instructions: payload.care_instructions.map((ci, i) => ({ id: Date.now() + 10 + i, child_id: childId, ...ci })),
+          };
+          const newGuardian = {
+            id: Date.now() + 20,
+            child_id: childId,
+            user_id: parentId,
+            relationship: payload.parent.relationship,
+            pickup_authorized: true,
+          };
+          setData((d) => ({
+            ...d,
+            users: [newParent, ...d.users],
+            children: [newChild, ...d.children],
+            guardians: [newGuardian, ...d.guardians],
+          }));
+          setToast("Enrolled new family in preview.");
+          setModal(null);
+          return;
+        }
+
+        await portalApi.enrollFamily(payload);
+        await refresh();
+        setToast(`Enrolled ${payload.child.full_name} and linked ${payload.parent.name} successfully.`);
+        setModal(null);
+        return;
       } else if (kind === "user-status") {
         const status = row.status === "active" ? "inactive" : "active";
         await mutate(
@@ -622,10 +763,19 @@ export default function Portal() {
   };
   const visibleData = useMemo(() => {
     if (!staff || !preview) return data;
+    const hasActiveDuties = data.duties.some(
+      (d) => d.staff_id === actor!.id && d.status === "active",
+    );
     const children = data.children.filter(
       (c) =>
-        allowedDuty(data.duties, actor!.id, c.group_id, "attendance") ||
-        allowedDuty(data.duties, actor!.id, c.group_id, "pickup"),
+        c.caregiver_id === actor!.id ||
+        data.duties.some(
+          (d) =>
+            d.staff_id === actor!.id &&
+            d.status === "active" &&
+            (!d.group_id || d.group_id === c.group_id),
+        ) ||
+        !hasActiveDuties,
     );
     const ids = new Set(children.map((c) => c.id));
     return {
@@ -680,9 +830,15 @@ export default function Portal() {
         </div>
         <div className="p-login-card">
           <div>
-            <span className="p-eyebrow">DAYCARE WORKSPACE</span>
-            <h1>Welcome back.</h1>
-            <p>Sign in with your personal staff account.</p>
+            <span className="p-eyebrow" style={{ letterSpacing: "1.2px", color: "#BD4264", fontWeight: 700 }}>
+              DAYCARE WORKSPACE
+            </span>
+            <h1 style={{ fontSize: "28px", fontWeight: 800, color: "#10263D", margin: "8px 0 6px" }}>
+              Welcome back.
+            </h1>
+            <p style={{ color: "#626872", fontSize: "14px", marginBottom: "18px" }}>
+              Sign in to manage daycare operations, classrooms, and staff.
+            </p>
             <form onSubmit={login}>
               <label>
                 Email address
@@ -715,7 +871,9 @@ export default function Portal() {
               </Button>
             </form>
             <footer>
-              <a href="/">Open parent app</a>
+              <a href="/">SaaS Landing & Free Trial</a>
+              <a href="/super-admin">Super Admin Portal</a>
+              <a href="/app">Parent Mobile App</a>
               {__DEV__ && (
                 <a href="/admin/preview/dashboard">Explore admin preview</a>
               )}
@@ -729,8 +887,8 @@ export default function Portal() {
       <Overview {...ctx} />
     ) : selected === "analytics" ? (
       <Analytics {...ctx} />
-    ) : selected === "users" ? (
-      <Registry {...ctx} />
+    ) : ["caregivers", "users"].includes(selected) ? (
+      <Caregivers {...ctx} />
     ) : selected === "children" ? (
       <Children {...ctx} />
     ) : selected === "groups" ? (
@@ -750,7 +908,11 @@ export default function Portal() {
         className={"p-sidebar " + (menu ? "open" : "")}
         aria-label="Workspace navigation"
       >
-        <Brand />
+        <Brand
+          daycareName={actor?.daycare_name}
+          plan={actor?.subscription_plan}
+          trialEndsAt={actor?.trial_ends_at}
+        />
         {navigation.map((group) => (
           <div key={group.group}>
             <div className="p-nav-group">{group.group}</div>
@@ -806,6 +968,30 @@ export default function Portal() {
             Ankelba <span>/</span>{" "}
             <strong>{staff ? "Staff workspace" : "Administration"}</strong>
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto", marginRight: 16 }}>
+            <a
+              href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                window.history.pushState({}, "", "/");
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              }}
+              style={{ fontSize: 12, fontWeight: 700, color: "var(--navy)", padding: "5px 12px", borderRadius: 8, background: "#f0ece1", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              <Icon name="globe" size={13} /> SaaS Landing
+            </a>
+            <a
+              href="/app"
+              onClick={(e) => {
+                e.preventDefault();
+                window.history.pushState({}, "", "/app");
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              }}
+              style={{ fontSize: 12, fontWeight: 700, color: "var(--navy)", padding: "5px 12px", borderRadius: 8, background: "#f0ece1", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}
+            >
+              <Icon name="smartphone" size={13} /> Parent App
+            </a>
+          </div>
           <div className="p-top-actions">
             {!["dashboard","analytics"].includes(selected) && <label className="p-search">
               <Icon name="search" size={17} />
@@ -837,17 +1023,16 @@ export default function Portal() {
           {preview && (
             <div className="p-preview">
               <span>
-                <strong>Design preview</strong> · Sample records. Changes stay
-                in this tab.
+                <strong>Sample preview</strong> · Changes stay in this preview and reset when you leave.
               </span>
               <a
                 href={
                   staff
-                    ? "/admin/preview/dashboard"
-                    : "/staff/preview/workspace"
+                    ? "/staff/workspace"
+                    : "/admin/dashboard"
                 }
               >
-                {staff ? "Admin preview" : "Staff preview"} ↗
+                {staff ? "Staff workspace" : "Production route"} ↗
               </a>
             </div>
           )}
@@ -882,8 +1067,8 @@ export default function Portal() {
                 </Button>
               )}
               {selected === "dashboard" && (
-                <Button icon="plus" onClick={() => open("child")}>
-                  Register child
+                <Button icon="plus" onClick={() => open("family")}>
+                  Enroll Family
                 </Button>
               )}
             </div>
@@ -958,10 +1143,53 @@ function PortalModal({
     required = true,
     extra: Partial<FieldSpec> = {},
   ): FieldSpec => ({ key, label, type, required, ...extra });
-  if (kind === "user") {
-    title =
-      (row.id ? "Edit " : "Register ") +
-      (row.role === "parent" ? "parent / guardian" : "caregiver");
+  if (kind === "family") {
+    return (
+      <FamilyEnrollmentModal
+        ctx={ctx}
+        busy={busy}
+        error={error}
+        save={save}
+        close={close}
+      />
+    );
+  } else if (kind === "caregiver" || (kind === "user" && row.role === "caregiver")) {
+    title = row.id ? "Edit Caregiver Profile" : "Register Caregiver";
+    initial = {
+      role: "caregiver",
+      ...row,
+    };
+    fields = [
+      field("name", "Full name"),
+      field("email", "Email address", "email"),
+      field("phone", "Phone number", "tel", false, {
+        hint: "Primary contact phone number for staff communication",
+      }),
+      field("title", "Job title / Designation", "text", false, {
+        hint: "e.g., Lead Infant Teacher, Preschool Caregiver, Assistant Teacher, Nurse",
+      }),
+      field("shift", "Working hours / Shift", "text", false, {
+        wide: true,
+        hint: "e.g., Morning Shift (07:30 – 15:30) or Full Day (08:00 – 17:00)",
+      }),
+      field("qualifications", "Qualifications & Certifications", "textarea", false, {
+        wide: true,
+        hint: "e.g., Early Childhood Education Diploma, CPR & First Aid Certified",
+      }),
+      field("emergency_contact", "Staff emergency contact", "text", false, {
+        wide: true,
+        hint: "Name and phone number of person to call in an emergency",
+      }),
+    ];
+    if (!row.id && !preview)
+      fields.push(
+        field("password", "Temporary account password", "password", true, {
+          wide: true,
+          hint: "At least 8 characters. Share securely with the caregiver.",
+        }),
+      );
+  } else if (kind === "user") {
+    title = (row.id ? "Edit " : "Register ") + (row.role === "parent" ? "parent / guardian" : "caregiver");
     fields = [
       field("name", "Full name"),
       field("email", "Email address", "email"),
@@ -1124,13 +1352,20 @@ function PortalModal({
     submit = preview ? "Record in preview" : "Record attendance";
   } else if (kind === "pickup") {
     title = "Verify pickup · " + row.full_name;
-    initial = { identity_confirmed: false };
     const guardians = data.guardians.filter(
       (g) =>
         g.child_id === row.id &&
         g.pickup_authorized &&
         data.users.some((u) => u.id === g.user_id && u.status === "active"),
     );
+    const defaultGuardian = guardians[0];
+    initial = {
+      guardian_user_id: defaultGuardian ? String(defaultGuardian.user_id) : "",
+      identity_confirmed: true,
+      reason: defaultGuardian
+        ? `Parent ${userName(data, defaultGuardian.user_id)} (${defaultGuardian.relationship}) verified for pickup at front desk.`
+        : "Authorized guardian verified for pickup at front desk.",
+    };
     fields = [
       field(
         "guardian_user_id",
@@ -1273,6 +1508,93 @@ function PortalModal({
         handled separately.
       </div>
     );
+  } else if (kind === "child-profile") {
+    const guardian = data.guardians.find((g) => g.child_id === row.id);
+    const parentUser = guardian ? data.users.find((u) => u.id === guardian.user_id) : null;
+    const parentName = row.parent_name || parentUser?.name || "Unlinked";
+    const parentEmail = row.parent_email || parentUser?.email || "—";
+    const parentRel = row.parent_relationship || guardian?.relationship || "Parent / Guardian";
+    const group = data.groups.find((g) => g.id === row.group_id)?.name || "Unassigned Group";
+    const allergies = (row.care_instructions || []).filter((ci: any) => ci.category === "allergy");
+    const dietary = (row.care_instructions || []).filter((ci: any) => ci.category === "dietary");
+    const emergencyContacts = row.emergency_contacts || [];
+
+    return (
+      <Modal title={`Child & Family Profile · ${row.full_name}`} onClose={close}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px", padding: "4px 0" }}>
+          <div style={{ background: "#F8FAF8", padding: "14px 16px", borderRadius: "12px", border: "1px solid #E5E9E2" }}>
+            <h3 style={{ fontSize: "13px", fontWeight: 700, margin: "0 0 10px 0", color: "#1D2A1F", textTransform: "uppercase", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name="child" size={15} /> Child Information
+            </h3>
+            <div className="p-detail-grid">
+              <div><small>Full Name</small><p>{row.full_name}</p></div>
+              <div><small>Date of Birth</small><p>{dayOf(row.dob)}</p></div>
+              <div><small>Gender</small><p style={{ textTransform: "capitalize" }}>{row.gender || "—"}</p></div>
+              <div><small>Classroom Group</small><p><Badge value={group} tone="green" /></p></div>
+              <div><small>Enrollment Status</small><p><Badge value={row.enrollment_status || "active"} tone="green" /></p></div>
+            </div>
+          </div>
+
+          <div style={{ background: "#F5F8FB", padding: "14px 16px", borderRadius: "12px", border: "1px solid #E1E8F0" }}>
+            <h3 style={{ fontSize: "13px", fontWeight: 700, margin: "0 0 10px 0", color: "#162D42", textTransform: "uppercase", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name="people" size={15} /> Parent & Guardian Account
+            </h3>
+            <div className="p-detail-grid">
+              <div><small>Parent Name</small><p><strong>{parentName}</strong> {parentRel ? `(${parentRel})` : ""}</p></div>
+              <div><small>Account Email</small><p>{parentEmail}</p></div>
+              <div><small>Pickup Authorized</small><p><Badge value={guardian?.pickup_authorized ? "approved" : "pending"} tone="green" /></p></div>
+            </div>
+          </div>
+
+          <div style={{ background: "#FDF8F0", padding: "14px 16px", borderRadius: "12px", border: "1px solid #F5E8D0" }}>
+            <h3 style={{ fontSize: "13px", fontWeight: 700, margin: "0 0 10px 0", color: "#4A3B18", textTransform: "uppercase", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name="alert" size={15} /> Food Allergies & Dietary Restrictions
+            </h3>
+            {allergies.length > 0 || dietary.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {allergies.map((a: any, i: number) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <Badge value="Allergy" tone="gold" />
+                    <span style={{ fontSize: "13px", fontWeight: 600 }}>{a.instruction_text}</span>
+                  </div>
+                ))}
+                {dietary.map((d: any, i: number) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <Badge value="Dietary" tone="green" />
+                    <span style={{ fontSize: "13px" }}>{d.instruction_text}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: "13px", color: "#059669", margin: 0, fontWeight: 500 }}>✓ No known food allergies or dietary restrictions recorded.</p>
+            )}
+          </div>
+
+          <div style={{ background: "#FAFAFA", padding: "14px 16px", borderRadius: "12px", border: "1px solid #E5E7EB" }}>
+            <h3 style={{ fontSize: "13px", fontWeight: 700, margin: "0 0 10px 0", color: "#374151", textTransform: "uppercase", letterSpacing: "0.5px", display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon name="phone" size={15} /> Emergency Contacts
+            </h3>
+            {emergencyContacts.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {emergencyContacts.map((c: any, i: number) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: i < emergencyContacts.length - 1 ? "1px solid #F3F4F6" : "none" }}>
+                    <div>
+                      <strong>{c.name}</strong> <span style={{ fontSize: "12px", color: "#6B7280" }}>({c.relationship})</span>
+                    </div>
+                    <span style={{ fontWeight: 600, fontSize: "13px", color: "#2563EB" }}>{c.phone}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: "13px", color: "#6B7280", margin: 0 }}>No emergency contacts recorded yet.</p>
+            )}
+          </div>
+        </div>
+        <div className="p-dialog-footer" style={{ marginTop: "16px" }}>
+          <Button onClick={close}>Done</Button>
+        </div>
+      </Modal>
+    );
   } else {
     title =
       kind === "report-detail"
@@ -1348,3 +1670,254 @@ function PortalModal({
     </Modal>
   );
 }
+
+function FamilyEnrollmentModal({
+  ctx,
+  busy,
+  error,
+  save,
+  close,
+}: {
+  ctx: PageContext;
+  busy: boolean;
+  error: string;
+  save: (v: Record<string, any>) => void;
+  close: () => void;
+}) {
+  const { data, preview } = ctx;
+  const [formData, setFormData] = useState({
+    parent_name: "",
+    parent_email: "",
+    parent_phone: "",
+    parent_relationship: "Mother",
+    parent_password: "",
+    child_full_name: "",
+    child_dob: "",
+    child_gender: "female",
+    child_group_id: data.groups[0]?.id ? String(data.groups[0].id) : "",
+    child_caregiver_id: "",
+    allergy_note: "",
+    care_note: "",
+    sec_contact_name: "",
+    sec_contact_relationship: "Father",
+    sec_contact_phone: "",
+  });
+
+  const handleChange = (key: string, val: string) => {
+    setFormData((prev) => ({ ...prev, [key]: val }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    save(formData);
+  };
+
+  return (
+    <Modal title="Enroll New Family (Parent & Child)" onClose={close}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <p style={{ margin: "0 0 6px", fontSize: "14px", color: "var(--muted)" }}>
+          Register the parent user account and child profile together in one step. The parent is automatically linked with authorized child pickup.
+        </p>
+
+        {/* Section 1: Parent Information */}
+        <div style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{ color: "var(--navy)", display: "flex", alignItems: "center" }}><Icon name="user" size={17} /></span>
+            <strong style={{ fontSize: "15px", color: "var(--navy)" }}>Parent / Guardian Account</strong>
+          </div>
+          <div className="p-fields" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <label>
+              Full name *
+              <input
+                required
+                placeholder="e.g., Sara Mengistu"
+                value={formData.parent_name}
+                onChange={(e) => handleChange("parent_name", e.target.value)}
+              />
+            </label>
+            <label>
+              Email address (login username) *
+              <input
+                type="email"
+                required
+                placeholder="sara@example.com"
+                value={formData.parent_email}
+                onChange={(e) => handleChange("parent_email", e.target.value)}
+              />
+            </label>
+            <label>
+              Phone number *
+              <input
+                type="tel"
+                required
+                placeholder="+251 911 223 344"
+                value={formData.parent_phone}
+                onChange={(e) => handleChange("parent_phone", e.target.value)}
+              />
+            </label>
+            <label>
+              Relationship to child
+              <select
+                value={formData.parent_relationship}
+                onChange={(e) => handleChange("parent_relationship", e.target.value)}
+              >
+                <option value="Mother">Mother</option>
+                <option value="Father">Father</option>
+                <option value="Legal Guardian">Legal Guardian</option>
+                <option value="Grandmother">Grandmother</option>
+                <option value="Grandfather">Grandfather</option>
+                <option value="Aunt">Aunt</option>
+                <option value="Uncle">Uncle</option>
+                <option value="Other">Other</option>
+              </select>
+            </label>
+            <label style={{ gridColumn: "1 / -1" }}>
+              Parent app temporary password *
+              <input
+                type="password"
+                required={!preview}
+                minLength={8}
+                placeholder="At least 8 characters (e.g., Welcome123!)"
+                value={formData.parent_password}
+                onChange={(e) => handleChange("parent_password", e.target.value)}
+              />
+              <small style={{ color: "#6B7280", marginTop: 4, display: "block" }}>
+                The parent will use this password to sign in to the Ankelba Parent mobile app.
+              </small>
+            </label>
+          </div>
+        </div>
+
+        {/* Section 2: Child Profile */}
+        <div style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{ color: "var(--navy)", display: "flex", alignItems: "center" }}><Icon name="child" size={17} /></span>
+            <strong style={{ fontSize: "15px", color: "var(--navy)" }}>Child Information</strong>
+          </div>
+          <div className="p-fields" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <label>
+              Child’s full name *
+              <input
+                required
+                placeholder="e.g., Nathaniel Dawit"
+                value={formData.child_full_name}
+                onChange={(e) => handleChange("child_full_name", e.target.value)}
+              />
+            </label>
+            <label>
+              Date of birth *
+              <input
+                type="date"
+                required
+                max={today()}
+                value={formData.child_dob}
+                onChange={(e) => handleChange("child_dob", e.target.value)}
+              />
+            </label>
+            <label>
+              Gender
+              <select
+                value={formData.child_gender}
+                onChange={(e) => handleChange("child_gender", e.target.value)}
+              >
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>
+              Classroom group
+              <select
+                value={formData.child_group_id}
+                onChange={(e) => handleChange("child_group_id", e.target.value)}
+              >
+                <option value="">Select classroom group</option>
+                {data.groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ gridColumn: "1 / -1" }}>
+              Assigned primary caregiver (optional)
+              <select
+                value={formData.child_caregiver_id}
+                onChange={(e) => handleChange("child_caregiver_id", e.target.value)}
+              >
+                <option value="">Unassigned</option>
+                {data.users
+                  .filter((u) => u.role === "caregiver" && u.status === "active")
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} {u.title ? `(${u.title})` : ""}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        {/* Section 3: Health, Allergies & Emergency Contacts */}
+        <div style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{ color: "var(--navy)", display: "flex", alignItems: "center" }}><Icon name="heart" size={17} /></span>
+            <strong style={{ fontSize: "15px", color: "var(--navy)" }}>Care, Allergies & Secondary Emergency Contact</strong>
+          </div>
+          <div className="p-fields" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <label style={{ gridColumn: "1 / -1" }}>
+              Allergies or dietary restrictions
+              <input
+                placeholder="e.g., Peanut allergy — carries EpiPen (or leave empty if none)"
+                value={formData.allergy_note}
+                onChange={(e) => handleChange("allergy_note", e.target.value)}
+              />
+            </label>
+            <label style={{ gridColumn: "1 / -1" }}>
+              Special care / sleep / medical instructions
+              <textarea
+                placeholder="e.g., Sleeps best with stuffed rabbit. Needs water bottle refilled at noon."
+                value={formData.care_note}
+                onChange={(e) => handleChange("care_note", e.target.value)}
+                rows={2}
+              />
+            </label>
+            <label>
+              Secondary contact name (optional)
+              <input
+                placeholder="e.g., Dawit Abebe"
+                value={formData.sec_contact_name}
+                onChange={(e) => handleChange("sec_contact_name", e.target.value)}
+              />
+            </label>
+            <label>
+              Secondary contact phone
+              <input
+                type="tel"
+                placeholder="+251 911 554 433"
+                value={formData.sec_contact_phone}
+                onChange={(e) => handleChange("sec_contact_phone", e.target.value)}
+              />
+            </label>
+          </div>
+        </div>
+
+        {error && (
+          <div role="alert" className="p-error" style={{ margin: "4px 0" }}>
+            {error}
+          </div>
+        )}
+
+        <div className="p-dialog-footer" style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <Button variant="secondary" type="button" onClick={close} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Enrolling Family…" : "Complete Family Enrollment"}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+

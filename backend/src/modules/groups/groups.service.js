@@ -6,28 +6,34 @@
  */
 const db = require('../../config/db');
 
-const listGroups = async () => {
+const listGroups = async (user = null) => {
+  const isSuperAdmin = user && user.role === 'super_admin';
+  const daycareId = user ? user.daycare_id : null;
+
   const { rows } = await db.query(
-    `SELECT g.id, g.name, g.description,
+    `SELECT g.id, g.name, g.description, g.daycare_id,
             COUNT(c.id) FILTER (WHERE c.enrollment_status = 'active') AS active_children_count
      FROM groups g
      LEFT JOIN children c ON c.group_id = g.id
-     GROUP BY g.id, g.name, g.description
-     ORDER BY g.name ASC`
+     WHERE ($1::boolean OR g.daycare_id = $2)
+     GROUP BY g.id, g.name, g.description, g.daycare_id
+     ORDER BY g.name ASC`,
+    [isSuperAdmin, daycareId]
   );
   return { data: rows };
 };
 
-const createGroup = async (body) => {
+const createGroup = async (body, user = null) => {
+  const daycareId = user ? user.daycare_id : null;
   try {
     const { rows } = await db.query(
-      `INSERT INTO groups (name, description) VALUES ($1, $2) RETURNING *`,
-      [body.name, body.description || null]
+      `INSERT INTO groups (name, description, daycare_id) VALUES ($1, $2, $3) RETURNING *`,
+      [body.name, body.description || null, daycareId]
     );
     return rows[0];
   } catch (err) {
     if (err.code === '23505') {
-      const e = new Error('A group with this name already exists');
+      const e = new Error('A group with this name already exists in your daycare');
       e.statusCode = 409;
       throw e;
     }
@@ -35,8 +41,11 @@ const createGroup = async (body) => {
   }
 };
 
-const updateGroup = async (groupIdParam, body) => {
+const updateGroup = async (groupIdParam, body, user = null) => {
   const groupId = parseInt(groupIdParam, 10);
+  const isSuperAdmin = user && user.role === 'super_admin';
+  const daycareId = user ? user.daycare_id : null;
+
   const fields = [];
   const vals = [];
   let idx = 1;
@@ -51,8 +60,14 @@ const updateGroup = async (groupIdParam, body) => {
   }
 
   vals.push(groupId);
+  const idIdx = idx++;
+  vals.push(isSuperAdmin);
+  const saIdx = idx++;
+  vals.push(daycareId);
+  const dcIdx = idx++;
+
   const { rows } = await db.query(
-    `UPDATE groups SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`,
+    `UPDATE groups SET ${fields.join(', ')} WHERE id = $${idIdx} AND ($${saIdx}::boolean OR daycare_id = $${dcIdx}) RETURNING *`,
     vals
   );
 
@@ -64,8 +79,10 @@ const updateGroup = async (groupIdParam, body) => {
   return rows[0];
 };
 
-const deleteGroup = async (groupIdParam) => {
+const deleteGroup = async (groupIdParam, user = null) => {
   const groupId = parseInt(groupIdParam, 10);
+  const isSuperAdmin = user && user.role === 'super_admin';
+  const daycareId = user ? user.daycare_id : null;
 
   // Prevent delete if children are still assigned
   const { rows: check } = await db.query(
@@ -80,8 +97,8 @@ const deleteGroup = async (groupIdParam) => {
   }
 
   const { rows } = await db.query(
-    `DELETE FROM groups WHERE id = $1 RETURNING id, name`,
-    [groupId]
+    `DELETE FROM groups WHERE id = $1 AND ($2::boolean OR daycare_id = $3) RETURNING id, name`,
+    [groupId, isSuperAdmin, daycareId]
   );
 
   if (rows.length === 0) {

@@ -15,15 +15,29 @@ interface AuthContextType {
   login: (
     email: string,
     password: string,
-  ) => Promise<{ success: boolean; error?: string; role?: string }>;
+  ) => Promise<{ success: boolean; error?: string; role?: string; profileComplete?: boolean }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  enablePreview: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper to extract detailed error messages from backend response
+const extractErrorMessage = (err: any): string => {
+  if (err.response?.data?.fields && Array.isArray(err.response.data.fields) && err.response.data.fields.length > 0) {
+    return err.response.data.fields.map((f: any) => f.message).join(". ");
+  }
+  return (
+    err.response?.data?.error ||
+    err.response?.data?.message ||
+    err.message ||
+    "Invalid credentials or connection error"
+  );
+};
+
 // Default mock parent for development preview matching Figma ("Hana Tesfaye")
-const DEFAULT_PREVIEW_USER: UserProfileMe = {
+export const DEFAULT_PREVIEW_USER: UserProfileMe = {
   id: 24,
   name: "Hana Tesfaye",
   email: "hana.tesfaye@example.com",
@@ -48,19 +62,20 @@ const DEFAULT_PREVIEW_USER: UserProfileMe = {
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  const [user, setUser] = useState<UserProfileMe | null>(DEFAULT_PREVIEW_USER);
+  const [user, setUser] = useState<UserProfileMe | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const refreshUser = async () => {
     try {
       const response = await apiClient.get<{ user: UserProfileMe }>("/auth/me");
-      setUser(response.data.user);
-    } catch {
-      // Fallback to preview user in development if backend is not currently running
-      if (!user) {
-        setUser(DEFAULT_PREVIEW_USER);
+      if (response.data?.user) {
+        setUser(response.data.user);
       }
+    } catch {
+      await tokenStorage.clearToken();
+      setToken(null);
+      setUser(null);
     }
   };
 
@@ -70,14 +85,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         const savedToken = await tokenStorage.getToken();
         if (savedToken) {
           setToken(savedToken);
-          await refreshUser();
+          const response = await apiClient.get<{ user: UserProfileMe }>("/auth/me");
+          if (response.data?.user) {
+            setUser(response.data.user);
+          } else {
+            setUser(null);
+          }
         } else {
-          // Keep preview user active for rapid UI development and review
-          setUser(DEFAULT_PREVIEW_USER);
+          setUser(null);
         }
       } catch (err) {
-        console.warn("Auth initialization fallback to preview user", err);
-        setUser(DEFAULT_PREVIEW_USER);
+        console.warn("Auth initialization failed", err);
+        await tokenStorage.clearToken();
+        setToken(null);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -98,11 +119,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
       setToken(receivedToken);
       setUser(receivedUser as UserProfileMe);
       setIsLoading(false);
-      return { success: true, role: receivedUser.role };
+      return {
+        success: true,
+        role: receivedUser.role,
+        profileComplete: (receivedUser as UserProfileMe).profile_complete,
+      };
     } catch (err: any) {
       setIsLoading(false);
-      const errorMsg =
-        err.response?.data?.error || "Invalid credentials or connection error";
+      const errorMsg = extractErrorMessage(err);
       return { success: false, error: errorMsg };
     }
   };
@@ -119,9 +143,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     }
   };
 
+  const enablePreview = () => {
+    setUser(DEFAULT_PREVIEW_USER);
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, token, isLoading, login, logout, refreshUser }}
+      value={{ user, token, isLoading, login, logout, refreshUser, enablePreview }}
     >
       {children}
     </AuthContext.Provider>

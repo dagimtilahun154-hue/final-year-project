@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Image, Pressable } from "react-native";
+import React, { useEffect, useState, useCallback } from "react";
+import { View, Image, Pressable, RefreshControl, ActivityIndicator } from "react-native";
 import {
   ChatCircle,
   FileText,
@@ -14,6 +14,8 @@ import {
   Palette,
   ArrowRight,
   ArrowBendUpLeft,
+  Warning,
+  Clock,
 } from "phosphor-react-native";
 import {
   Page,
@@ -25,65 +27,122 @@ import {
   Section,
   Button,
   s,
+  Notice,
 } from "../../components/design/System";
 import { artwork } from "../../theme/assets";
 import { useAuth } from "../../context/AuthContext";
 import { useChild } from "../../context/ChildContext";
-const highlights = [
-  {
-    title: "Breakfast completed",
-    label: "MEALS",
-    Icon: ForkKnife,
-    bg: "#FFF7CF",
-    ink: "#DD7B13",
-  },
-  {
-    title: "Nap: 1h 15m",
-    label: "SLEEP",
-    Icon: Moon,
-    bg: "#F1EDF6",
-    ink: "#6745AF",
-  },
-  {
-    title: "Colors & Shapes",
-    label: "LEARNING",
-    Icon: PuzzlePiece,
-    bg: "#E8F6F3",
-    ink: "#008794",
-  },
-  {
-    title: "Outdoor Play",
-    label: "PLAY",
-    Icon: Car,
-    bg: "#F0F6E8",
-    ink: "#3B813C",
-  },
-  {
-    title: "Happy ☺",
-    label: "MOOD",
-    Icon: Smiley,
-    bg: "#FFF0E9",
-    ink: "#CC423E",
-  },
-  {
-    title: "Doing great today",
-    label: "OBSERVATION",
-    Icon: Eye,
-    bg: "#FDEDED",
-    ink: "#BD4264",
-  },
-];
+import {
+  getChildAttendance,
+  getChildReports,
+  getDailyReport,
+  getDaycareEvents,
+  getDirectMessages,
+  AttendanceRecord,
+  DailyReportSummary,
+  DetailedDailyReport,
+  CalendarEvent,
+  DirectMessage,
+} from "../../api/parentApi";
+
 export function HomeScreen({ navigation }: any) {
   const { user } = useAuth();
   const { selectedChild } = useChild();
-  const child = selectedChild?.full_name.split(" ")[0] || "Liya";
-  const report = () => navigation.navigate("FullDailyReport", { reportId: 1 });
+
+  const childId = selectedChild?.id || 1;
+  const childFirstName = selectedChild?.full_name ? selectedChild.full_name.split(" ")[0] : "Your Child";
+  const groupName = selectedChild?.group_name || "Daycare Group";
+
+  // Calculate age string
+  const formatAge = (dob?: string) => {
+    if (!dob) return "";
+    const birth = new Date(dob);
+    const today = new Date();
+    const years = today.getFullYear() - birth.getFullYear();
+    return years > 0 ? `${years} years` : "Infant";
+  };
+
+  // State from real database queries
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [latestAttendance, setLatestAttendance] = useState<AttendanceRecord | null>(null);
+  const [todayReport, setTodayReport] = useState<DetailedDailyReport | null>(null);
+  const [upcomingEvent, setUpcomingEvent] = useState<CalendarEvent | null>(null);
+  const [latestMessage, setLatestMessage] = useState<DirectMessage | null>(null);
+
+  const formatEventTime = (isoString?: string) => {
+    if (!isoString) return "";
+    const d = new Date(isoString);
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  };
+
+  const loadDashboardData = useCallback(async () => {
+    try {
+      // 1. Fetch child attendance
+      const attendanceList = await getChildAttendance(childId).catch(() => []);
+      if (attendanceList.length > 0) {
+        setLatestAttendance(attendanceList[0]);
+      } else {
+        setLatestAttendance(null);
+      }
+
+      // 2. Fetch child daily reports
+      const reports = await getChildReports(childId).catch(() => []);
+      if (reports.length > 0) {
+        const latestSummary = reports[0];
+        const detailed = await getDailyReport(latestSummary.id).catch(() => null);
+        setTodayReport(detailed);
+      } else {
+        setTodayReport(null);
+      }
+
+      // 3. Fetch upcoming events
+      const events = await getDaycareEvents(false).catch(() => []);
+      if (events.length > 0) {
+        setUpcomingEvent(events[0]);
+      } else {
+        setUpcomingEvent(null);
+      }
+
+      // 4. Fetch latest caregiver message
+      const messages = await getDirectMessages().catch(() => []);
+      if (messages.length > 0) {
+        setLatestMessage(messages[0]);
+      } else {
+        setLatestMessage(null);
+      }
+    } catch {
+      // Silently handle network drops during background sync
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [childId]);
+
+  useEffect(() => {
+    setLoading(true);
+    loadDashboardData();
+    const unsubscribe = navigation.addListener?.("focus", () => {
+      loadDashboardData();
+    });
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, [navigation, loadDashboardData]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadDashboardData();
+  };
+
+  const report = () => navigation.navigate("FullDailyReport", { reportId: todayReport?.id || 1 });
+
   const actions = [
     {
       label: "Message",
       Icon: ChatCircle,
       bg: "#F0F4F3",
-      run: () => navigation.navigate("CaregiverChat", { threadId: 1 }),
+      run: () => navigation.navigate("MainTabs", { screen: "Messages" }),
     },
     { label: "Report", Icon: FileText, bg: "#FFF0C7", run: report },
     {
@@ -99,18 +158,101 @@ export function HomeScreen({ navigation }: any) {
       run: () => navigation.navigate("Calendar"),
     },
   ];
+
+  // Dynamic Highlights built from database records
+  const highlights = [];
+  if (todayReport) {
+    if (todayReport.meals && todayReport.meals.length > 0) {
+      const m = todayReport.meals[0];
+      highlights.push({
+        title: `${m.meal_type ? m.meal_type.charAt(0).toUpperCase() + m.meal_type.slice(1) : "Meal"}: ${m.portion || "completed"}`,
+        label: "MEALS",
+        Icon: ForkKnife,
+        bg: "#FFF7CF",
+        ink: "#DD7B13",
+      });
+    }
+    if (todayReport.sleep_duration_min) {
+      const h = Math.floor(todayReport.sleep_duration_min / 60);
+      const min = todayReport.sleep_duration_min % 60;
+      highlights.push({
+        title: `Nap: ${h > 0 ? `${h}h ` : ""}${min}m`,
+        label: "SLEEP",
+        Icon: Moon,
+        bg: "#F1EDF6",
+        ink: "#6745AF",
+      });
+    }
+    if (todayReport.activities && todayReport.activities.length > 0) {
+      const a = todayReport.activities[0];
+      highlights.push({
+        title: a.description || "Activity completed",
+        label: (a.activity_type || "LEARNING").toUpperCase(),
+        Icon: PuzzlePiece,
+        bg: "#E8F6F3",
+        ink: "#008794",
+      });
+    }
+    if (todayReport.activities && todayReport.activities.length > 1) {
+      const a2 = todayReport.activities[1];
+      highlights.push({
+        title: a2.description || "Play session",
+        label: "PLAY",
+        Icon: Car,
+        bg: "#F0F6E8",
+        ink: "#3B813C",
+      });
+    }
+    if (todayReport.mood) {
+      highlights.push({
+        title: todayReport.mood.charAt(0).toUpperCase() + todayReport.mood.slice(1),
+        label: "MOOD",
+        Icon: Smiley,
+        bg: "#FFF0E9",
+        ink: "#CC423E",
+      });
+    }
+    if (todayReport.general_observations) {
+      highlights.push({
+        title: todayReport.general_observations.slice(0, 32) + (todayReport.general_observations.length > 32 ? "…" : ""),
+        label: "OBSERVATION",
+        Icon: Eye,
+        bg: "#FDEDED",
+        ink: "#BD4264",
+      });
+    }
+  }
+
+  // Attendance badge determination
+  let attendanceBadgeText = "● NOT CHECKED IN";
+  let attendanceSubText = "No check-in record for today yet";
+  if (latestAttendance) {
+    if (latestAttendance.event_type === "checkin") {
+      attendanceBadgeText = "● AT DAYCARE";
+      attendanceSubText = `Checked in at ${formatEventTime(latestAttendance.event_time)}`;
+    } else if (latestAttendance.event_type === "checkout") {
+      attendanceBadgeText = "● CHECKED OUT";
+      attendanceSubText = `Picked up at ${formatEventTime(latestAttendance.event_time)}`;
+    } else if (latestAttendance.event_type === "absent") {
+      attendanceBadgeText = "● ABSENT";
+      attendanceSubText = `Marked absent on ${new Date(latestAttendance.event_time).toLocaleDateString()}`;
+    }
+  }
+
   return (
     <Page contentStyle={{ paddingHorizontal: 28 }}>
       <Text size={16}>
-        Good morning, {user?.name?.split(" ")[0] || "Hana"} 👋
+        Good morning, {user?.name?.split(" ")[0] || "Parent"}
       </Text>
       <Text
         color="#6F727A"
         size={16}
         style={{ marginTop: 7, marginBottom: 24 }}
       >
-        Here’s how {child}’s day is going.
+        Here’s how {childFirstName}’s day is going.
       </Text>
+
+      {/* Child Status Hero Card */}
       <Card
         onPress={() =>
           navigation.navigate("ChildProfile", { childId: selectedChild?.id })
@@ -123,19 +265,21 @@ export function HomeScreen({ navigation }: any) {
           <View style={{ flex: 1 }}>
             <View style={s.between}>
               <Text size={18} weight="medium">
-                {child}
+                {selectedChild?.full_name || childFirstName}
               </Text>
-              <Badge title="● AT DAYCARE" />
+              <Badge title={attendanceBadgeText} />
             </View>
             <Text size={13} color="#6A6F78" style={{ marginTop: 5 }}>
-              4 years · Sunflower Group
+              {[formatAge(selectedChild?.dob), groupName].filter(Boolean).join(" · ")}
             </Text>
             <Text size={13} color="#7E828A" style={{ marginTop: 7 }}>
-              Checked in at 8:04 AM
+              {attendanceSubText}
             </Text>
           </View>
         </View>
       </Card>
+
+      {/* Quick Actions */}
       <View
         style={{
           flexDirection: "row",
@@ -168,153 +312,190 @@ export function HomeScreen({ navigation }: any) {
           </Pressable>
         ))}
       </View>
+
+      {/* Highlights Section */}
       <Section title="Today’s Highlights" action="View All" onPress={report} />
-      <View style={s.grid}>
-        {highlights.map((h) => (
-          <Pressable
-            key={h.label}
-            accessibilityRole="button"
-            accessibilityLabel={h.label + ": " + h.title}
-            onPress={report}
-            style={{
-              width: "48%",
-              minHeight: 132,
-              padding: 16,
-              borderRadius: 23,
-              backgroundColor: h.bg,
-              overflow: "hidden",
-            }}
-          >
-            <View
-              pointerEvents="none"
+
+      {loading ? (
+        <Card style={{ alignItems: "center", paddingVertical: 32 }}>
+          <ActivityIndicator color="#061224" />
+          <Text size={13} color="#7E828A" style={{ marginTop: 10 }}>Loading today's updates…</Text>
+        </Card>
+      ) : highlights.length > 0 ? (
+        <View style={s.grid}>
+          {highlights.map((h, idx) => (
+            <Pressable
+              key={idx}
+              accessibilityRole="button"
+              accessibilityLabel={h.label + ": " + h.title}
+              onPress={report}
               style={{
-                position: "absolute",
-                right: -16,
-                bottom: -12,
-                opacity: 0.06,
-              }}
-            >
-              <h.Icon size={83} color={h.ink} weight="fill" />
-            </View>
-            <View
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
+                width: "48%",
+                minHeight: 132,
+                padding: 16,
+                borderRadius: 23,
                 backgroundColor: h.bg,
-                marginBottom: 8,
-                justifyContent: "center",
+                overflow: "hidden",
+                marginBottom: 12,
               }}
             >
-              <h.Icon size={25} color={h.ink} weight="fill" />
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  right: -16,
+                  bottom: -12,
+                  opacity: 0.06,
+                }}
+              >
+                <h.Icon size={83} color={h.ink} weight="fill" />
+              </View>
+              <View
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: h.bg,
+                  marginBottom: 8,
+                  justifyContent: "center",
+                }}
+              >
+                <h.Icon size={25} color={h.ink} weight="fill" />
+              </View>
+              <Text size={10} color={h.ink} style={{ marginBottom: 5 }}>
+                {h.label}
+              </Text>
+              <Text size={14} weight="medium" color={h.ink}>
+                {h.title}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : (
+        <Card style={{ padding: 18, marginBottom: 12 }}>
+          <View style={s.row}>
+            <Clock size={20} color="#858990" />
+            <Text size={14} weight="medium" style={{ marginLeft: 8 }}>
+              No report submitted yet today
+            </Text>
+          </View>
+          <Text size={13} color="#747984" style={{ marginTop: 6, lineHeight: 18 }}>
+            Caregivers submit meals, naps, and activity reports during the afternoon. Check back shortly.
+          </Text>
+        </Card>
+      )}
+
+      {/* Latest Activity Card */}
+      {todayReport?.activities && todayReport.activities.length > 0 && (
+        <Card
+          style={{ marginTop: 12, padding: 0, overflow: "hidden" }}
+          onPress={report}
+        >
+          <View
+            style={[
+              s.between,
+              {
+                paddingHorizontal: 18,
+                paddingVertical: 12,
+                backgroundColor: "#FFF6DA",
+              },
+            ]}
+          >
+            <View style={s.row}>
+              <Palette size={18} color="#D78B23" />
+              <Text size={11} color="#C78020" style={{ letterSpacing: 0.8 }}>
+                LATEST ACTIVITY
+              </Text>
             </View>
-            <Text size={10} color={h.ink} style={{ marginBottom: 5 }}>
-              {h.label}
+            <Text size={11} color="#C78020">
+              {todayReport.report_date}
             </Text>
-            <Text size={14} weight="medium" color={h.ink}>
-              {h.title}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      <Card
-        style={{ marginTop: 24, padding: 0, overflow: "hidden" }}
-        onPress={report}
-      >
-        <View
-          style={[
-            s.between,
-            {
-              paddingHorizontal: 18,
-              paddingVertical: 12,
-              backgroundColor: "#FFF6DA",
-            },
-          ]}
+          </View>
+          <View style={[s.row, { padding: 16, alignItems: "flex-start" }]}>
+            <Image
+              source={artwork.painting}
+              style={{ width: 98, height: 104, borderRadius: 14 }}
+            />
+            <View style={{ flex: 1 }}>
+              <Text size={18} weight="medium">
+                {todayReport.activities[0].description || "Daily Activity"}
+              </Text>
+              <Text
+                size={14}
+                color="#707782"
+                style={{ marginTop: 4 }}
+                numberOfLines={3}
+              >
+                Location: {todayReport.activities[0].location || "Daycare Room"}
+              </Text>
+            </View>
+          </View>
+        </Card>
+      )}
+
+      {/* Caregiver Observation / Message */}
+      {(todayReport?.general_observations || latestMessage) && (
+        <Card tint="#F4F5ED" style={{ marginTop: 24, overflow: "hidden" }}>
+          <CardGlow color="#C9DEEF" />
+          <View style={s.row}>
+            <Avatar source={artwork.caregiver} size={42} />
+            <View>
+              <Text weight="medium">
+                {todayReport?.caregiver_name || latestMessage?.sender_name || "Daycare Staff"}
+              </Text>
+              <Text size={11} color="#858990">
+                Caregiver Note
+              </Text>
+            </View>
+          </View>
+          <Text color="#606B74" style={{ marginTop: 16, marginBottom: 20 }}>
+            “{todayReport?.general_observations || latestMessage?.body}”
+          </Text>
+          <Button
+            title="Message Caregiver"
+            icon={ArrowBendUpLeft}
+            variant="outline"
+            style={{ backgroundColor: "#fff" }}
+            onPress={() => navigation.navigate("MainTabs", { screen: "Messages" })}
+          />
+        </Card>
+      )}
+
+      {/* Upcoming Event Card from Database */}
+      {upcomingEvent && (
+        <Card
+          style={{ marginTop: 24, borderColor: "#E3E5F5" }}
+          onPress={() => navigation.navigate("EventDetail", { eventId: upcomingEvent.id })}
         >
           <View style={s.row}>
-            <Palette size={18} color="#D78B23" />
-            <Text size={11} color="#C78020" style={{ letterSpacing: 0.8 }}>
-              LATEST ACTIVITY
-            </Text>
-          </View>
-          <Text size={10} color="#C78020">
-            10:30 AM
-          </Text>
-        </View>
-        <View style={[s.row, { padding: 16, alignItems: "flex-start" }]}>
-          <Image
-            source={artwork.painting}
-            style={{ width: 98, height: 104, borderRadius: 14 }}
-          />
-          <View style={{ flex: 1 }}>
-            <Text size={18} weight="medium">
-              Painting Time 🎨
-            </Text>
-            <Text
-              size={14}
-              color="#707782"
-              style={{ marginTop: 4 }}
-              numberOfLines={3}
+            <View
+              style={{
+                padding: 12,
+                borderRadius: 14,
+                backgroundColor: "#EDEBF7",
+                alignItems: "center",
+                minWidth: 54,
+              }}
             >
-              {child} explored finger paints and made a colorful picture.
-            </Text>
+              <Text size={10} color="#6566A0" weight="bold">
+                {new Date(upcomingEvent.event_date).toLocaleString("en-US", { month: "short" }).toUpperCase()}
+              </Text>
+              <Text size={20} color="#6566A0" weight="bold">
+                {new Date(upcomingEvent.event_date).getDate()}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text size={16} weight="medium">
+                {upcomingEvent.title}
+              </Text>
+              <Text size={13} color="#747984">
+                {upcomingEvent.event_time ? upcomingEvent.event_time : "All day"}
+              </Text>
+            </View>
+            <ArrowRight size={24} color="#6566A0" />
           </View>
-        </View>
-      </Card>
-      <Card tint="#F4F5ED" style={{ marginTop: 24, overflow: "hidden" }}>
-        <CardGlow color="#C9DEEF" />
-        <View style={s.row}>
-          <Avatar source={artwork.caregiver} size={42} />
-          <View>
-            <Text weight="medium">Sara (Caregiver)</Text>
-            <Text size={11} color="#858990">
-              Sent 1 hour ago
-            </Text>
-          </View>
-        </View>
-        <Text color="#606B74" style={{ marginTop: 16, marginBottom: 20 }}>
-          “{child} had a great morning! She helped during cleanup and shared her
-          toys with the group.”
-        </Text>
-        <Button
-          title="Reply to Sara"
-          icon={ArrowBendUpLeft}
-          variant="outline"
-          style={{ backgroundColor: "#fff" }}
-          onPress={() => navigation.navigate("CaregiverChat", { threadId: 1 })}
-        />
-      </Card>
-      <Card
-        style={{ marginTop: 24, borderColor: "#E3E5F5" }}
-        onPress={() => navigation.navigate("EventDetail", { eventId: 1 })}
-      >
-        <View style={s.row}>
-          <View
-            style={{
-              padding: 12,
-              borderRadius: 14,
-              backgroundColor: "#EDEBF7",
-              alignItems: "center",
-            }}
-          >
-            <Text size={10} color="#6566A0">
-              AUG
-            </Text>
-            <Text size={21} color="#6566A0">
-              28
-            </Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text size={16} weight="medium">
-              Parent Meeting
-            </Text>
-            <Text size={13} color="#747984">
-              Friday, 3:00 PM
-            </Text>
-          </View>
-          <ArrowRight size={24} />
-        </View>
-      </Card>
+        </Card>
+      )}
     </Page>
   );
 }

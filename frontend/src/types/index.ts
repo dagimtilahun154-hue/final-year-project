@@ -4,6 +4,16 @@ export type UserStatus = 'active' | 'inactive';
 export type Gender = 'male' | 'female';
 export type EnrollmentStatus = 'active' | 'inactive' | 'graduated';
 export type CareInstructionType = 'allergy' | 'diet' | 'medical' | 'general';
+export type CareInstructionCategory =
+  | 'allergy'
+  | 'dietary'
+  | 'medical_note'
+  | 'general'
+  | 'medication'
+  | 'diet'
+  | 'note'
+  | 'routine';
+
 export type AttendanceType = 'checkin' | 'checkout';
 export type Mood = 'happy' | 'playful' | 'fussy' | 'tired' | 'calm';
 export type MealType = 'breakfast' | 'lunch' | 'snack';
@@ -52,16 +62,23 @@ export interface ChildSummary {
   id: number;
   full_name: string;
   dob?: string;
-  gender?: Gender;
-  enrollment_status: EnrollmentStatus;
+  gender?: Gender | string;
+  enrollment_status: EnrollmentStatus | string;
   relationship?: string;
+  group_id?: number;
   group_name?: string;
   photo_url?: string;
+  pickup_authorized?: boolean;
+  caregiver_id?: number;
+  caregiver_name?: string;
 }
 
+
 export interface UserProfileMe extends User {
+  profile_complete?: boolean;
   linked_children?: ChildSummary[];
 }
+
 
 // Children
 export interface Child {
@@ -90,10 +107,15 @@ export interface EmergencyContact {
 
 export interface CareInstruction {
   id: number;
-  instruction_type: CareInstructionType;
-  description: string;
-  created_at: string;
+  child_id?: number;
+  category: CareInstructionCategory;
+  instruction_text: string;
+  // Legacy aliases for backward compat
+  instruction_type?: CareInstructionType;
+  description?: string;
+  created_at?: string;
 }
+
 
 export interface GuardianLink {
   id: number;

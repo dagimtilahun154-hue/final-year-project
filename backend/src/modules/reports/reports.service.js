@@ -13,11 +13,11 @@ const { isParentLinked } = require('../children/children.service');
  */
 const createReport = async (body, user) => {
   const childId = parseInt(body.child_id, 10);
-  const reportDate = body.report_date || new Date().toISOString().split('T')[0];
+  const reportDate = body.report_date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Addis_Ababa', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
-  // 1. Verify child exists & check caregiver assignment
+  // 1. Verify child exists & belongs to daycare & check caregiver assignment
   const { rows: childRows } = await db.query(
-    `SELECT id, caregiver_id FROM children WHERE id = $1`,
+    `SELECT id, caregiver_id, daycare_id FROM children WHERE id = $1`,
     [childId]
   );
   if (childRows.length === 0) {
@@ -27,6 +27,12 @@ const createReport = async (body, user) => {
   }
 
   const child = childRows[0];
+  if (user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+    const err = new Error('Child profile not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
   if (user.role === 'caregiver' && child.caregiver_id !== user.id) {
     const err = new Error('Access denied: You are not assigned to this child');
     err.statusCode = 403;
@@ -37,11 +43,11 @@ const createReport = async (body, user) => {
   try {
     await client.query('BEGIN');
 
-    // 2. Insert daily report header
+    // 2. Insert daily report header stamped with child's daycare_id
     const insertHeaderSql = `
       INSERT INTO daily_reports
-        (child_id, caregiver_id, report_date, sleep_duration_min, sleep_notes, mood, behavior_notes, general_observations)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        (child_id, caregiver_id, report_date, sleep_duration_min, sleep_notes, mood, behavior_notes, general_observations, daycare_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `;
     const headerVals = [
@@ -53,6 +59,7 @@ const createReport = async (body, user) => {
       body.mood || null,
       body.behavior_notes || null,
       body.general_observations || null,
+      child.daycare_id,
     ];
 
     let reportHeader;
@@ -119,7 +126,7 @@ const getReport = async (reportIdParam, user) => {
 
   // Query 1: Header + caregiver & child names
   const { rows: headerRows } = await db.query(
-    `SELECT dr.*, u.name AS caregiver_name, c.full_name AS child_name
+    `SELECT dr.*, u.name AS caregiver_name, c.full_name AS child_name, c.daycare_id AS child_daycare_id, c.caregiver_id AS child_caregiver_id
      FROM daily_reports dr
      JOIN users u ON u.id = dr.caregiver_id
      JOIN children c ON c.id = dr.child_id
@@ -134,6 +141,12 @@ const getReport = async (reportIdParam, user) => {
   }
 
   const report = headerRows[0];
+  const reportDaycareId = report.daycare_id || report.child_daycare_id;
+  if (user.role !== 'super_admin' && user.daycare_id && reportDaycareId !== user.daycare_id) {
+    const err = new Error('Daily report not found');
+    err.statusCode = 404;
+    throw err;
+  }
 
   // RBAC checks
   if (user.role === 'parent') {
@@ -143,7 +156,7 @@ const getReport = async (reportIdParam, user) => {
       err.statusCode = 403;
       throw err;
     }
-  } else if (user.role === 'caregiver' && report.caregiver_id !== user.id) {
+  } else if (user.role === 'caregiver' && report.child_caregiver_id !== user.id) {
     const err = new Error('Access denied: You are not assigned to this child');
     err.statusCode = 403;
     throw err;
@@ -175,7 +188,7 @@ const getChildReports = async (childIdParam, query = {}, user) => {
   const childId = parseInt(childIdParam, 10);
 
   const { rows: childRows } = await db.query(
-    `SELECT id, caregiver_id FROM children WHERE id = $1`,
+    `SELECT id, caregiver_id, daycare_id FROM children WHERE id = $1`,
     [childId]
   );
   if (childRows.length === 0) {
@@ -185,6 +198,11 @@ const getChildReports = async (childIdParam, query = {}, user) => {
   }
 
   const child = childRows[0];
+  if (user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+    const err = new Error('Child profile not found');
+    err.statusCode = 404;
+    throw err;
+  }
 
   if (user.role === 'parent') {
     const linked = await isParentLinked(user.id, childId);
@@ -203,7 +221,7 @@ const getChildReports = async (childIdParam, query = {}, user) => {
   const endDate = query.endDate || null;
 
   const { rows } = await db.query(
-    `SELECT dr.id, dr.child_id, dr.report_date, dr.mood, dr.sleep_duration_min, dr.submitted_at,
+    `SELECT dr.id, dr.child_id, dr.report_date, dr.mood, dr.sleep_duration_min, dr.submitted_at, dr.daycare_id,
             u.name AS caregiver_name
      FROM daily_reports dr
      JOIN users u ON u.id = dr.caregiver_id
@@ -220,8 +238,10 @@ const getChildReports = async (childIdParam, query = {}, user) => {
 /**
  * Admin Caregiver Completion Monitor (Architecture Plan §6.2 Query 6).
  */
-const listReports = async (query = {}) => {
-  const targetDate = query.date || new Date().toISOString().split('T')[0];
+const listReports = async (query = {}, user) => {
+  const targetDate = query.date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Addis_Ababa', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const isSuper = user && user.role === 'super_admin';
+  const daycareId = user?.daycare_id || null;
 
   const { rows: monitor } = await db.query(
     `SELECT u.id AS caregiver_id, u.name AS caregiver_name,
@@ -229,12 +249,14 @@ const listReports = async (query = {}) => {
             COUNT(dr.id)::integer AS reports_submitted,
             (COUNT(c.id) - COUNT(dr.id))::integer AS reports_missing
      FROM users u
-     JOIN children c ON c.caregiver_id = u.id AND c.enrollment_status = 'active'
-     LEFT JOIN daily_reports dr ON dr.caregiver_id = u.id AND dr.report_date = $1::date
+     LEFT JOIN children c ON c.caregiver_id = u.id AND c.enrollment_status = 'active'
+     LEFT JOIN daily_reports dr ON dr.child_id = c.id AND dr.report_date = $1::date
      WHERE u.role_id = (SELECT id FROM roles WHERE name = 'caregiver')
+       AND u.status = 'active'
+       AND ($2::boolean = TRUE OR u.daycare_id = $3)
      GROUP BY u.id, u.name
      ORDER BY reports_missing DESC, u.name ASC`,
-    [targetDate]
+    [targetDate, isSuper, daycareId]
   );
 
   return {

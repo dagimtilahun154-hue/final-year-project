@@ -10,6 +10,11 @@
     "migrate:rollback": "knex migrate:rollback --knexfile src/config/knexfile.js",
     "seed": "knex seed:run --knexfile src/config/knexfile.js",
     "test": "node master_audit.js",
+    "test:foundation": "node --test scripts/foundation.test.cjs",
+    "test:daycare-auth": "node --test scripts/daycare-auth-config.test.cjs scripts/daycare-users-unit.test.cjs scripts/daycare-auth.test.cjs scripts/daycare-auth-app.test.cjs scripts/daycare-auth-races.test.cjs",
+    "test:auth-security": "node --test scripts/auth-security.test.cjs scripts/mfa-auth.test.cjs scripts/account-recovery.test.cjs scripts/platform-auth.test.cjs",
+    "auth:inbox": "node scripts/auth-test-inbox.cjs",
+    "auth:bootstrap-owner": "node scripts/bootstrap-platform-owner.cjs",
     "audit": "node master_audit.js",
     "lint": "eslint src/**/*.js"
   },
@@ -34,13 +39,15 @@
     "jsonwebtoken": "^9.0.2",
     "knex": "^3.1.0",
     "morgan": "^1.10.0",
+    "otpauth": "9.5.2",
     "pg": "^8.12.0",
     "winston": "^3.13.0"
   },
   "devDependencies": {
     "eslint": "^9.9.0",
     "nodemon": "^3.1.4",
-    "prettier": "^3.3.3"
+    "prettier": "^3.3.3",
+    "qrcode": "^1.5.4"
   },
   "engines": {
     "node": ">=20.0.0"

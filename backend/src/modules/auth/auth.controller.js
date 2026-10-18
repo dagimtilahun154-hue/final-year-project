@@ -83,4 +83,26 @@ const changePassword = async (req, res, next) => {
   }
 };
 
-module.exports = { login, logout, me, forgotPassword, resetPassword, changePassword };
+const register = async (req, res, next) => {
+  try {
+    const result = await authService.register(req.body);
+
+    res.cookie('token', result.token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 24 * 60 * 60 * 1000,
+    });
+
+    res.status(201).json({
+      message: 'Account created successfully',
+      token: result.token,
+      user: result.user,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { login, register, logout, me, forgotPassword, resetPassword, changePassword };
+

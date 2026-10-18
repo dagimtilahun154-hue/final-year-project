@@ -1,48 +1,137 @@
-import React, { useState } from "react";
-import { View } from "react-native";
+import React, { useState, useEffect, useCallback } from "react";
+import { View, ActivityIndicator } from "react-native";
 import {
   LockKey,
   Package,
   CalendarBlank,
   ChatCircle,
+  Clock,
 } from "phosphor-react-native";
 import {
   Page,
   Text,
   Card,
+  Badge,
   Field,
   Button,
   Notice,
   MenuRow,
   s,
 } from "../../components/design/System";
-import { useDesign } from "../../context/DesignContext";
 import { useAuth } from "../../context/AuthContext";
 import { apiClient } from "../../api/client";
+import { getMyOrders, OrderRecord } from "../../api/parentApi";
 import { formatMoney } from "../store/catalog";
+
 export function OrdersScreen({ navigation }: any) {
-  const { order } = useDesign();
+  const [orders, setOrders] = useState<OrderRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadOrders = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await getMyOrders();
+      setOrders(data);
+    } catch {
+      // Gracefully handle error
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadOrders();
+    const unsubscribe = navigation.addListener?.("focus", loadOrders);
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, [navigation, loadOrders]);
+
+  const getStatusTone = (status: string): "green" | "gold" | "neutral" | "red" => {
+    switch (status) {
+      case "collected":
+        return "green";
+      case "ready_for_pickup":
+      case "confirmed":
+        return "green";
+      case "cancelled":
+        return "red";
+      case "placed":
+      default:
+        return "gold";
+    }
+  };
+
+  const formatStatus = (status: string) => {
+    return status.replace(/_/g, " ").toUpperCase();
+  };
+
   return (
     <Page title="My Orders" back tabs activeTab="Profile">
-      {order ? (
-        <Card onPress={() => navigation.navigate("OrderConfirmation")}>
-          <View style={s.row}>
-            <Package size={28} />
-            <View>
-              <Text weight="semibold">#{order.reference}</Text>
-              <Text size={12} color="#818A96">
-                Preview · {formatMoney(order.total)}
-              </Text>
-            </View>
-          </View>
-        </Card>
-      ) : (
-        <Card>
-          <Text size={21} weight="semibold">
-            No orders yet
+      {loading ? (
+        <View style={{ paddingVertical: 40, alignItems: "center" }}>
+          <ActivityIndicator size="small" color="#061224" />
+          <Text size={13} color="#8A919B" style={{ marginTop: 12 }}>
+            Loading orders…
           </Text>
-          <Text color="#7E8793" style={{ marginVertical: 16 }}>
-            Find everyday essentials in the daycare store.
+        </View>
+      ) : orders.length > 0 ? (
+        orders.map((o) => (
+          <Card key={o.id} style={{ marginBottom: 14, padding: 18 }}>
+            <View style={[s.row, { alignItems: "flex-start" }]}>
+              <View
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  backgroundColor: "#F2F4F7",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: 12,
+                }}
+              >
+                <Package size={22} color="#10263D" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={[s.between, { flexWrap: "wrap", gap: 4 }]}>
+                  <Text size={16} weight="semibold">
+                    Order #{o.id}
+                  </Text>
+                  <Badge
+                    title={formatStatus(o.order_status)}
+                    tone={getStatusTone(o.order_status)}
+                  />
+                </View>
+                <Text size={12} color="#818A96" style={{ marginTop: 4 }}>
+                  {new Date(o.created_at).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+                </Text>
+                {o.items && o.items.length > 0 ? (
+                  <Text size={13} color="#4D5663" style={{ marginTop: 6 }}>
+                    {o.items.map((i) => `${i.product_name} (×${i.quantity})`).join(", ")}
+                  </Text>
+                ) : null}
+                <View style={[s.between, { marginTop: 10, borderTopWidth: 1, borderTopColor: "#EDEAE4", paddingTop: 8 }]}>
+                  <Text size={12} color="#8A919B">Payment: {o.payment_status.toUpperCase()}</Text>
+                  <Text size={15} weight="bold" color="#10263D">
+                    {formatMoney(Number(o.total))}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </Card>
+        ))
+      ) : (
+        <Card style={{ padding: 24, alignItems: "center" }}>
+          <Package size={48} color="#A2A7B0" />
+          <Text size={19} weight="semibold" style={{ marginTop: 14 }}>
+            No orders placed yet
+          </Text>
+          <Text color="#7E8793" style={{ textAlign: "center", marginTop: 8, marginBottom: 20 }}>
+            Browse uniforms, books, diapers, and supplies available in the daycare store.
           </Text>
           <Button
             title="Visit Store"
@@ -53,27 +142,27 @@ export function OrdersScreen({ navigation }: any) {
     </Page>
   );
 }
+
 export function NotificationsScreen({ navigation }: any) {
   return (
     <Page title="Notifications" back>
       <Card style={{ paddingVertical: 0 }}>
         <MenuRow
-          title="Liya’s daily report is ready"
+          title="Daily Activity Reports"
           icon={CalendarBlank}
-          onPress={() =>
-            navigation.navigate("FullDailyReport", { reportId: 1 })
-          }
+          onPress={() => navigation.navigate("Reports")}
         />
         <MenuRow
-          title="A message from Sara"
+          title="Messages & Caregiver Chat"
           icon={ChatCircle}
-          onPress={() => navigation.navigate("CaregiverChat", { threadId: 1 })}
+          onPress={() => navigation.navigate("MainTabs", { screen: "Messages" })}
           last
         />
       </Card>
     </Page>
   );
 }
+
 export function SecurityScreen() {
   const { token } = useAuth();
   const [current, setCurrent] = useState("");
@@ -81,6 +170,7 @@ export function SecurityScreen() {
   const [confirm, setConfirm] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+
   const save = async () => {
     if (!token) {
       setMessage("Sign in to change your password.");
@@ -98,7 +188,7 @@ export function SecurityScreen() {
         current_password: current,
         new_password: password,
       });
-      setMessage("Password updated.");
+      setMessage("Password updated successfully.");
       setCurrent("");
       setPassword("");
       setConfirm("");
@@ -110,6 +200,7 @@ export function SecurityScreen() {
       setBusy(false);
     }
   };
+
   return (
     <Page title="Security & Password" back>
       <Card>
