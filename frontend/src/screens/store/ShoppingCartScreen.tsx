@@ -84,8 +84,10 @@ export function ShoppingCartScreen({ navigation }: any) {
                         size={16}
                         label={"Increase " + item.product.name}
                         disabled={
-                          item.product.stock_quantity !== undefined &&
-                          item.quantity >= item.product.stock_quantity
+                          (item.product.stock_qty !== undefined
+                            ? item.quantity >= item.product.stock_qty
+                            : item.product.stock_quantity !== undefined &&
+                              item.quantity >= item.product.stock_quantity)
                         }
                         onPress={() =>
                           updateQuantity(item.product.id, item.quantity + 1)

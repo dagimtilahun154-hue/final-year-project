@@ -31,6 +31,12 @@ const initialForm: RegisterFormState = {
 
 export default function LandingPage() {
   const [modalOpen, setModalOpen] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [statusEmail, setStatusEmail] = useState("");
+  const [statusResult, setStatusResult] = useState<any | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+
   const [form, setForm] = useState<RegisterFormState>(initialForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +84,7 @@ export default function LandingPage() {
           <a className="saas-nav-link" href="#features">Features</a>
           <a className="saas-nav-link" href="#plans">30-Day Trial</a>
           <a className="saas-nav-link" href="#security">Tenant Isolation</a>
+          <a className="saas-nav-link" onClick={() => setShowStatusModal(true)}>Check Application</a>
           <a className="saas-nav-link" onClick={() => navigateTo("/super-admin")}>Super Admin</a>
           <a className="saas-nav-link" onClick={() => navigateTo("/app")}>Parent Mobile App</a>
         </div>

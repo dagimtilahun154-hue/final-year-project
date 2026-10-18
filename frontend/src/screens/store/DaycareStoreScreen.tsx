@@ -157,10 +157,10 @@ export function DaycareStoreScreen({ navigation }: any) {
       ) : filtered.length > 0 ? (
         <View style={s.grid}>
           {filtered.map((p) => {
-            const stock = p.stock_quantity ?? 10;
+            const stock = p.stock_qty !== undefined && p.stock_qty !== null ? p.stock_qty : 0;
             const priceNum = Number(p.price);
             const qtyInCart = inCart(p.id);
-            const isOutOfStock = stock <= 0;
+            const isOutOfStock = stock <= 0 || p.in_stock === false;
             const isMaxedOut = qtyInCart >= stock;
 
             return (
@@ -212,6 +212,7 @@ export function DaycareStoreScreen({ navigation }: any) {
                           name: p.name,
                           price: priceNum,
                           stock_quantity: stock,
+                          stock_qty: stock,
                           in_stock: !isOutOfStock,
                         })
                       }

@@ -110,7 +110,7 @@ export function ChildProfileScreen({ route, navigation }: any) {
                 title="Report"
                 icon={CalendarBlank}
                 onPress={() =>
-                  navigation.navigate("FullDailyReport", { reportId: 1 })
+                  navigation.navigate("MainTabs", { screen: "Reports" })
                 }
                 style={{ flex: 1, minHeight: 45, paddingHorizontal: 10 }}
               />
@@ -137,7 +137,7 @@ export function ChildProfileScreen({ route, navigation }: any) {
               title="Update Care, Allergies & Safety"
               icon={PencilSimple}
               variant="outline"
-              onPress={() => navigation.navigate("ChildProfileWizard")}
+              onPress={() => navigation.navigate("ChildProfileWizard", { childId: profile?.id || childId })}
             />
           </View>
 

@@ -46,14 +46,14 @@ export function ReportsScreen({ navigation }: any) {
     };
   }, [navigation, loadReports]);
 
-  // Filter reports
-  const todayStr = new Date().toISOString().split("T")[0];
+  // Filter reports strictly with Addis Ababa timezone
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Addis_Ababa" }).format(new Date());
   const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
   const filtered = reports.filter((r) => {
     if (filter === "Today") {
-      return r.report_date.slice(0, 10) === todayStr;
+      return (r.report_date || "").slice(0, 10) === todayStr;
     }
     if (filter === "This Week") {
       return new Date(r.report_date) >= oneWeekAgo;

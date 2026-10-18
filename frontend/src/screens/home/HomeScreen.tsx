@@ -47,7 +47,7 @@ import {
 
 export function HomeScreen({ navigation }: any) {
   const { user } = useAuth();
-  const { selectedChild } = useChild();
+  const { selectedChild, linkedChildren, selectChild } = useChild();
 
   const childId = selectedChild?.id || 1;
   const childFirstName = selectedChild?.full_name ? selectedChild.full_name.split(" ")[0] : "Your Child";
@@ -78,19 +78,22 @@ export function HomeScreen({ navigation }: any) {
 
   const loadDashboardData = useCallback(async () => {
     try {
-      // 1. Fetch child attendance
-      const attendanceList = await getChildAttendance(childId).catch(() => []);
-      if (attendanceList.length > 0) {
-        setLatestAttendance(attendanceList[0]);
-      } else {
-        setLatestAttendance(null);
-      }
+      const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Addis_Ababa" }).format(new Date());
 
-      // 2. Fetch child daily reports
+      // 1. Fetch child attendance strictly for today
+      const attendanceList = await getChildAttendance(childId).catch(() => []);
+      const todayAttendance = attendanceList.find(
+        (a) => (a.event_time || "").slice(0, 10) === todayStr
+      ) || null;
+      setLatestAttendance(todayAttendance);
+
+      // 2. Fetch child daily reports strictly for today
       const reports = await getChildReports(childId).catch(() => []);
-      if (reports.length > 0) {
-        const latestSummary = reports[0];
-        const detailed = await getDailyReport(latestSummary.id).catch(() => null);
+      const todaySummary = reports.find(
+        (r) => (r.report_date || "").slice(0, 10) === todayStr
+      );
+      if (todaySummary) {
+        const detailed = await getDailyReport(todaySummary.id).catch(() => null);
         setTodayReport(detailed);
       } else {
         setTodayReport(null);
@@ -135,7 +138,13 @@ export function HomeScreen({ navigation }: any) {
     loadDashboardData();
   };
 
-  const report = () => navigation.navigate("FullDailyReport", { reportId: todayReport?.id || 1 });
+  const report = () => {
+    if (todayReport?.id) {
+      navigation.navigate("FullDailyReport", { reportId: todayReport.id });
+    } else {
+      navigation.navigate("MainTabs", { screen: "Reports" });
+    }
+  };
 
   const actions = [
     {
@@ -247,10 +256,54 @@ export function HomeScreen({ navigation }: any) {
       <Text
         color="#6F727A"
         size={16}
-        style={{ marginTop: 7, marginBottom: 24 }}
+        style={{ marginTop: 7, marginBottom: linkedChildren.length > 1 ? 14 : 24 }}
       >
         Here’s how {childFirstName}’s day is going.
       </Text>
+
+      {/* Child Switching Selector (Preserves selection across screens & storage) */}
+      {linkedChildren && linkedChildren.length > 1 && (
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            gap: 8,
+            marginBottom: 20,
+            alignItems: "center",
+          }}
+        >
+          <Text size={12} weight="bold" color="#89909B" style={{ marginRight: 4, letterSpacing: 0.5 }}>
+            SWITCH CHILD:
+          </Text>
+          {linkedChildren.map((c) => {
+            const isSelected = c.id === selectedChild?.id;
+            return (
+              <Pressable
+                key={c.id}
+                onPress={() => selectChild(c)}
+                accessibilityRole="button"
+                accessibilityLabel={`Select child ${c.full_name}`}
+                style={{
+                  paddingVertical: 6,
+                  paddingHorizontal: 14,
+                  borderRadius: 20,
+                  backgroundColor: isSelected ? "#061224" : "#F1F0F5",
+                  borderWidth: 1,
+                  borderColor: isSelected ? "#061224" : "#E2E5EB",
+                }}
+              >
+                <Text
+                  size={13}
+                  weight={isSelected ? "bold" : "regular"}
+                  color={isSelected ? "#FFFBED" : "#4A5260"}
+                >
+                  {c.full_name.split(" ")[0]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
 
       {/* Child Status Hero Card */}
       <Card

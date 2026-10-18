@@ -56,8 +56,11 @@ import {
   BrandMark,
 } from "../../components/design/System";
 import { useAuth } from "../../context/AuthContext";
+import { useChild } from "../../context/ChildContext";
 import {
   getMyChildren,
+  getChildCareProfile,
+  saveChildCareProfile,
   updateChildProfile,
   getGroups,
   updateCareInstructions,
@@ -67,6 +70,7 @@ import {
   EmergencyContactInput,
   ChildSummary,
   GroupRecord,
+  SaveCareProfileInput,
 } from "../../api/parentApi";
 
 // ─── Design Tokens ───────────────────────────────────────────────────────────
@@ -1515,10 +1519,12 @@ function StepCareNotes({
 }
 
 // ─── MAIN WIZARD SCREEN ───────────────────────────────────────────────────────
-export function ChildProfileWizardScreen({ navigation }: any) {
+export function ChildProfileWizardScreen({ route, navigation }: any) {
   const { user, refreshUser, logout } = useAuth();
+  const { selectedChild, setSelectedChild } = useChild();
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(false);
   const [error, setError] = useState("");
   const scrollRef = useRef<ScrollView>(null);
 
@@ -1526,7 +1532,9 @@ export function ChildProfileWizardScreen({ navigation }: any) {
   const [parentName, setParentName] = useState(user?.name || "");
 
   // Child data states (Step 1 fulfillment)
-  const [childId, setChildId] = useState<number | null>(null);
+  const [childId, setChildId] = useState<number | null>(route?.params?.childId || selectedChild?.id || null);
+  const [availableChildren, setAvailableChildren] = useState<ChildSummary[]>([]);
+  const [profileVersion, setProfileVersion] = useState<string>("");
   const [fullName, setFullName] = useState("");
   const [dob, setDob] = useState("2023-04-15");
   const [gender, setGender] = useState("female");
@@ -1563,7 +1571,86 @@ export function ChildProfileWizardScreen({ navigation }: any) {
     }
   }, [user]);
 
-  // Load linked child and groups on mount
+  // Hydrate from atomic endpoint
+  const loadCareProfile = async (targetId: number) => {
+    setLoadingProfile(true);
+    setError("");
+    try {
+      const data = await getChildCareProfile(targetId);
+      setProfileVersion(data.version);
+      setChildId(data.child.id);
+
+      if (data.child.full_name && !data.child.full_name.includes("'s Child") && data.child.full_name !== "My Child") {
+        setFullName(data.child.full_name);
+      }
+      if (data.child.dob) {
+        setDob(data.child.dob.slice(0, 10));
+      }
+      if (data.child.gender) {
+        setGender(data.child.gender.toLowerCase());
+      }
+      if (data.child.group_id) {
+        setGroupId(data.child.group_id);
+      }
+      if (data.child.relationship) {
+        setRelationship(data.child.relationship);
+      }
+      if (data.child.pickup_authorized !== undefined) {
+        setPickupAuthorized(Boolean(data.child.pickup_authorized));
+      }
+      if (data.parent?.name) {
+        setParentName(data.parent.name);
+      }
+
+      // Existing care instructions
+      const cis = data.child.care_instructions || [];
+      const allergyItems = cis
+        .filter((ci: any) => ci.category === "allergy")
+        .map((ci: any) => ({ id: uid(), text: ci.instruction_text }));
+      setAllergies(allergyItems);
+
+      const dietItems = cis
+        .filter((ci: any) => ci.category === "dietary" || ci.category === "diet")
+        .map((ci: any) => ci.instruction_text)
+        .join("; ");
+      setDietNotes(dietItems);
+
+      const medItems = cis
+        .filter((ci: any) => ci.category === "medical_note" || ci.category === "medication")
+        .map((ci: any) => ({
+          id: uid(),
+          name: ci.instruction_text.split(" | ")[0] || ci.instruction_text,
+          dosage: ci.instruction_text.includes("Dosage: ") ? ci.instruction_text.split("Dosage: ")[1]?.split(" | ")[0] || "" : "",
+          schedule: ci.instruction_text.includes("When: ") ? ci.instruction_text.split("When: ")[1] || "" : "",
+        }));
+      setMedications(medItems);
+
+      const generalNotes = cis
+        .filter((ci: any) => ci.category === "general" || ci.category === "note" || ci.category === "routine")
+        .map((ci: any) => ci.instruction_text)
+        .join("\n");
+      setExtraNotes(generalNotes);
+
+      // Existing emergency contacts
+      const ecs = data.child.emergency_contacts || [];
+      if (ecs.length > 0) {
+        setContacts(
+          ecs.map((ec: any) => ({
+            id: uid(),
+            name: ec.name,
+            relationship: ec.relationship,
+            phone: ec.phone,
+          }))
+        );
+      }
+    } catch (e: any) {
+      setError("Could not load latest care profile. Please check your connection.");
+    } finally {
+      setLoadingProfile(false);
+    }
+  };
+
+  // Initial load
   useEffect(() => {
     (async () => {
       try {
@@ -1575,23 +1662,17 @@ export function ChildProfileWizardScreen({ navigation }: any) {
         if (groupsList.length > 0) {
           setGroups(groupsList);
         }
-
         if (children.length > 0) {
-          const c = children[0];
-          setChildId(c.id);
-          setFullName(c.full_name && !c.full_name.includes("'s Child") && c.full_name !== "My Child" ? c.full_name : "");
-          if (c.dob) setDob(c.dob.slice(0, 10));
-          if (c.gender) setGender(c.gender.toLowerCase());
-          if (c.group_id) setGroupId(c.group_id);
-          else if (groupsList.length > 0) setGroupId(groupsList[0].id);
-          if (c.relationship) setRelationship(c.relationship);
-          if (c.pickup_authorized !== undefined) setPickupAuthorized(Boolean(c.pickup_authorized));
+          setAvailableChildren(children);
+          const chosenId = route?.params?.childId || selectedChild?.id || children[0].id;
+          setChildId(chosenId);
+          await loadCareProfile(chosenId);
         }
       } catch (e: any) {
-        setError("Could not load child profile. Please check your connection.");
+        setError("Could not initialize child profile wizard.");
       }
     })();
-  }, []);
+  }, [route?.params?.childId, selectedChild?.id]);
 
   const scrollTop = () =>
     scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -1624,25 +1705,6 @@ export function ChildProfileWizardScreen({ navigation }: any) {
       return;
     }
     setError("");
-
-    // If moving from step 1, persist child profile immediately
-    if (step === 1 && childId) {
-      try {
-        await updateChildProfile(childId, {
-          full_name: fullName.trim(),
-          dob: dob.trim(),
-          gender: gender || "female",
-          group_id: groupId,
-          relationship: relationship.trim(),
-          pickup_authorized: pickupAuthorized,
-          parent_name: parentName.trim() || undefined,
-        });
-      } catch (e: any) {
-        setError(e?.response?.data?.error || "Failed to update child profile.");
-        return;
-      }
-    }
-
     setStep((s) => s + 1);
     scrollTop();
   };
@@ -1668,28 +1730,20 @@ export function ChildProfileWizardScreen({ navigation }: any) {
     setError("");
 
     try {
-      // 1. Update child basic profile (full_name, dob, gender, group, relationship, pickup_authorized, parent_name)
-      await updateChildProfile(childId, {
-        full_name: fullName.trim(),
-        dob: dob.trim(),
-        gender: gender || "female",
-        group_id: groupId,
-        relationship: relationship.trim(),
-        pickup_authorized: pickupAuthorized,
-        parent_name: parentName.trim() || undefined,
+      // Build care instructions array (canonical categories: allergy, dietary, medical_note, general)
+      const careInstructions: Array<{ category: "allergy" | "dietary" | "medical_note" | "general"; instruction_text: string }> = [];
+
+      allergies.forEach((a) => {
+        if (a.text.trim()) {
+          careInstructions.push({ category: "allergy", instruction_text: a.text.trim() });
+        }
       });
-
-      // 2. Build care instructions array
-      const careInstructions: CareInstructionInput[] = [];
-
-      allergies.forEach((a) =>
-        careInstructions.push({ category: "allergy", instruction_text: a.text })
-      );
-      if (dietNotes.trim())
+      if (dietNotes.trim()) {
         careInstructions.push({
-          category: "diet",
+          category: "dietary",
           instruction_text: dietNotes.trim(),
         });
+      }
       medications.forEach((m) => {
         const text = [
           m.name,
@@ -1698,70 +1752,92 @@ export function ChildProfileWizardScreen({ navigation }: any) {
         ]
           .filter(Boolean)
           .join(" | ");
-        careInstructions.push({
-          category: "medication",
-          instruction_text: text,
-        });
+        if (text.trim()) {
+          careInstructions.push({
+            category: "medical_note",
+            instruction_text: text.trim(),
+          });
+        }
       });
-      if (conditions.trim())
+      if (conditions.trim()) {
         careInstructions.push({
-          category: "medication",
+          category: "medical_note",
           instruction_text: `Conditions: ${conditions.trim()}`,
         });
-      if (napRoutine.trim())
+      }
+      if (napRoutine.trim()) {
         careInstructions.push({
-          category: "routine",
+          category: "general",
           instruction_text: `Nap: ${napRoutine.trim()}`,
         });
-      if (comfortItems.trim())
+      }
+      if (comfortItems.trim()) {
         careInstructions.push({
-          category: "note",
+          category: "general",
           instruction_text: `Comfort: ${comfortItems.trim()}`,
         });
-      if (specialNeeds.trim())
+      }
+      if (specialNeeds.trim()) {
         careInstructions.push({
-          category: "note",
+          category: "general",
           instruction_text: `Special needs: ${specialNeeds.trim()}`,
         });
-      if (extraNotes.trim())
+      }
+      if (extraNotes.trim()) {
         careInstructions.push({
-          category: "note",
+          category: "general",
           instruction_text: extraNotes.trim(),
         });
-
-      if (careInstructions.length > 0) {
-        await updateCareInstructions(childId, careInstructions);
       }
 
-      // 3. Save emergency contacts (only non-empty ones)
-      const validContacts = contacts.filter(
-        (c) => c.name.trim() && c.phone.trim()
-      );
-      if (validContacts.length > 0) {
-        await updateEmergencyContacts(
-          childId,
-          validContacts.map((c) => ({
-            name: c.name.trim(),
-            relationship: c.relationship.trim(),
-            phone: c.phone.trim(),
-          }))
-        );
-      }
+      // Build emergency contacts (strip record IDs)
+      const validContacts = contacts
+        .filter((c) => c.name.trim() && c.phone.trim())
+        .map((c) => ({
+          name: c.name.trim(),
+          relationship: c.relationship.trim() || "Emergency Contact",
+          phone: c.phone.trim(),
+        }));
 
-      // 4. Mark profile complete
-      await markProfileComplete();
+      // Submit whole profile atomically with version concurrency protection
+      const payload: SaveCareProfileInput = {
+        version: profileVersion,
+        profile: {
+          full_name: fullName.trim(),
+          dob: dob.trim(),
+          gender: (gender as any) || "female",
+          relationship: relationship.trim(),
+        },
+        parent_name: parentName.trim() || undefined,
+        care_instructions: careInstructions,
+        emergency_contacts: validContacts,
+        complete_profile: true,
+      };
 
-      // 5. Refresh user in context
+      const result = await saveChildCareProfile(childId, payload);
+      setProfileVersion(result.version);
+
+      // Refresh auth context
       await refreshUser();
 
-      // 6. Navigate to MainTabs
+      if (result.child) {
+        setSelectedChild(result.child);
+      }
+
       navigation.replace("MainTabs");
     } catch (e: any) {
-      const msg =
-        e?.response?.data?.error ||
-        e?.message ||
-        "Failed to save profile. Please try again.";
-      setError(msg);
+      const status = e?.response?.status;
+      if (status === 409) {
+        setError("Newer care data exists on the server. Reloading latest records for your review...");
+        await loadCareProfile(childId);
+      } else {
+        const msg =
+          e?.response?.data?.error ||
+          e?.response?.data?.message ||
+          e?.message ||
+          "Failed to save care profile. Please check your inputs.";
+        setError(msg);
+      }
     } finally {
       setSaving(false);
     }

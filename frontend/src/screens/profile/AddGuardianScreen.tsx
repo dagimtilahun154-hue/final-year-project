@@ -12,51 +12,69 @@ import {
   s,
 } from "../../components/design/System";
 import { artwork } from "../../theme/assets";
-import { useDesign } from "../../context/DesignContext";
+import { useChild } from "../../context/ChildContext";
+import { apiClient } from "../../api/client";
 import { contactError } from "../../utils/contact";
+
 export function AddGuardianScreen({ navigation }: any) {
-  const { saveGuardian } = useDesign();
+  const { selectedChild } = useChild();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [relation, setRelation] = useState("Mother");
   const [error, setError] = useState("");
-  const save = () => {
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
     const problem = contactError(name, phone, email);
     if (problem) {
       setError(problem);
       return;
     }
-    const id = Date.now();
-    saveGuardian({
-      id,
-      name: name.trim(),
-      phone: phone.trim(),
-      email: email.trim(),
-      relationship: relation,
-      authorized: false,
-      enrolled: false,
-      photo: null,
-    });
-    navigation.replace("GuardianDetails", { guardianId: id });
+    if (!selectedChild?.id) {
+      setError("Please select a child first.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError("");
+      // Post guardian request to real backend endpoint
+      await apiClient.post(`/children/${selectedChild.id}/guardians`, {
+        name: name.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        relationship: relation,
+        pickup_authorized: false,
+      });
+      navigation.goBack();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || "Failed to submit guardian registration request.");
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const childName = selectedChild?.full_name ? selectedChild.full_name.split(" ")[0] : "Child";
+  const groupName = selectedChild?.group_name || "Daycare Group";
+
   return (
     <Page
       title="Add Guardian"
-      subtitle="Add a trusted adult for Liya."
+      subtitle={`Add a trusted adult for ${childName}.`}
       back
       tabs
       activeTab="Profile"
     >
       <Card tint="#FFFAEE" style={{ marginBottom: 22 }}>
         <View style={s.row}>
-          <Avatar source={artwork.guardianChild} />
+          <Avatar source={artwork.guardianChild} initials={childName.slice(0, 2).toUpperCase()} />
           <View>
             <Text size={20} weight="semibold">
-              Liya
+              {selectedChild?.full_name || childName}
             </Text>
             <Text size={12} color="#878D98">
-              4 years · Sunflower Group
+              {groupName}
             </Text>
           </View>
         </View>
@@ -124,8 +142,9 @@ export function AddGuardianScreen({ navigation }: any) {
       </Notice>
       {error ? <Notice tone="error">{error}</Notice> : null}
       <Button
-        title="Save Draft"
+        title="Submit Guardian Request"
         icon={UserPlus}
+        loading={saving}
         onPress={save}
         style={{ marginTop: 20 }}
       />

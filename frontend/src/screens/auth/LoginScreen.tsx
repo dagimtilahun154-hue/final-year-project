@@ -23,13 +23,19 @@ import {
 import { useAuth } from "../../context/AuthContext";
 
 export function LoginScreen({ navigation, route }: any) {
-  const { login } = useAuth();
+  const { login, verifyMfa } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [daycareCode, setDaycareCode] = useState("");
+  const [showDaycareCode, setShowDaycareCode] = useState(false);
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // MFA Challenge State
+  const [mfaChallenge, setMfaChallenge] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState("");
 
   const handleSignIn = async () => {
     const trimmedEmail = email.trim();
@@ -48,42 +54,69 @@ export function LoginScreen({ navigation, route }: any) {
 
     setBusy(true);
     setError("");
-    const result = await login(trimmedEmail, password);
+    const result = await login(trimmedEmail, password, daycareCode);
+    setBusy(false);
+
+    if (result.mfaRequired && result.challengeToken) {
+      setMfaChallenge(result.challengeToken);
+      return;
+    }
+
+    if (result.success) {
+      handlePostLoginRedirect(result);
+    } else {
+      setError(result.error || "Unable to sign in. Please check your credentials.");
+    }
+  };
+
+  const handleVerifyMfa = async () => {
+    if (!totpCode || totpCode.trim().length < 6) {
+      setError("Please enter the 6-digit authentication code.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    const result = await verifyMfa(mfaChallenge!, totpCode.trim());
     setBusy(false);
 
     if (result.success) {
-      if (result.role === "super_admin") {
-        if (Platform.OS === "web") {
-          window.location.assign("/super-admin");
-        } else {
-          const url = "http://192.168.8.114:8081/super-admin";
-          try {
-            await Linking.openURL(url);
-          } catch {
-            setError(`Super Admin Console is web-based. Open ${url} in your browser.`);
-          }
-        }
-        return;
-      }
-      if (result.role === "admin" || result.role === "caregiver") {
-        const targetPath = result.role === "admin" ? "/admin" : "/staff";
-        if (Platform.OS === "web") {
-          window.location.assign(targetPath);
-        } else {
-          const url = `http://192.168.8.114:8081${targetPath}`;
-          try {
-            await Linking.openURL(url);
-          } catch {
-            setError(`Please open ${url} in your phone browser.`);
-          }
-        }
-      } else if (result.profileComplete === false) {
-        navigation.replace("ChildProfileWizard");
-      } else {
-        navigation.replace("MainTabs");
-      }
+      handlePostLoginRedirect(result);
     } else {
-      setError(result.error || "Unable to sign in. Please check your credentials.");
+      setError(result.error || "Invalid authentication code. Please try again.");
+    }
+  };
+
+  const handlePostLoginRedirect = async (result: any) => {
+    if (result.role === "super_admin") {
+      if (Platform.OS === "web") {
+        window.location.assign("/super-admin");
+      } else {
+        const url = "http://192.168.8.114:8081/super-admin";
+        try {
+          await Linking.openURL(url);
+        } catch {
+          setError(`Super Admin Console is web-based. Open ${url} in your browser.`);
+        }
+      }
+      return;
+    }
+    if (result.role === "admin" || result.role === "caregiver") {
+      const targetPath = result.role === "admin" ? "/admin" : "/staff";
+      if (Platform.OS === "web") {
+        window.location.assign(targetPath);
+      } else {
+        const url = `http://192.168.8.114:8081${targetPath}`;
+        try {
+          await Linking.openURL(url);
+        } catch {
+          setError(`Please open ${url} in your phone browser.`);
+        }
+      }
+    } else if (result.profileComplete === false) {
+      navigation.replace("ChildProfileWizard");
+    } else {
+      navigation.replace("MainTabs");
     }
   };
 
@@ -156,64 +189,133 @@ export function LoginScreen({ navigation, route }: any) {
         </Text>
       </View>
 
-      {/* Email Field */}
-      <Field
-        label="Email Address"
-        icon={EnvelopeSimple}
-        placeholder="Enter your email address"
-        autoCapitalize="none"
-        keyboardType="email-address"
-        value={email}
-        onChangeText={(v) => {
-          setEmail(v);
-          setError("");
-        }}
-        autoComplete="email"
-      />
-
-      {/* Password Field */}
-      <Text weight="semibold" size={14} style={{ marginBottom: 8 }}>
-        Password
-      </Text>
-      <View style={[s.inputWrap, { marginBottom: 12 }]}>
-        <Lock size={20} color="#737984" />
-        <TextInput
-          accessibilityLabel="Password"
-          placeholder="Enter your password"
-          placeholderTextColor="#9295A1"
-          style={s.input}
-          value={password}
-          onChangeText={(v) => {
-            setPassword(v);
-            setError("");
-          }}
-          secureTextEntry={!visible}
-          autoComplete="current-password"
-          onSubmitEditing={handleSignIn}
-        />
-        <IconButton
-          icon={visible ? Eye : EyeSlash}
-          label={visible ? "Hide password" : "Show password"}
-          onPress={() => setVisible(!visible)}
-        />
-      </View>
-
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => navigation.navigate("ForgotPassword")}
-        style={{ alignSelf: "flex-end", marginBottom: 16 }}
-      >
-        <Text size={13} weight="medium" color="#4D5663">
-          Forgot Password?
-        </Text>
-      </Pressable>
-
-      {/* Error Banner */}
-      {error ? (
-        <View style={{ marginBottom: 16 }}>
-          <Notice tone="error">{error}</Notice>
+      {/* MFA Challenge View */}
+      {mfaChallenge ? (
+        <View style={{ marginBottom: 20 }}>
+          <Notice tone="info">
+            Two-Factor Authentication is enabled for your account. Please enter the 6-digit code from your authenticator app or your recovery code.
+          </Notice>
+          <View style={{ marginTop: 14 }}>
+            <Field
+              label="6-Digit Auth Code or Recovery Key"
+              icon={ShieldCheck}
+              placeholder="e.g. 123456"
+              value={totpCode}
+              onChangeText={(v) => {
+                setTotpCode(v);
+                setError("");
+              }}
+              keyboardType="number-pad"
+              autoFocus
+            />
+            {error ? (
+              <View style={{ marginBottom: 14 }}>
+                <Notice tone="error">{error}</Notice>
+              </View>
+            ) : null}
+            <Button
+              title={busy ? "Verifying…" : "Verify Code"}
+              loading={busy}
+              onPress={handleVerifyMfa}
+              style={{ marginTop: 8 }}
+            />
+            <Button
+              title="Cancel & Sign In With Another Account"
+              variant="ghost"
+              onPress={() => {
+                setMfaChallenge(null);
+                setTotpCode("");
+                setError("");
+              }}
+              style={{ marginTop: 10 }}
+            />
+          </View>
         </View>
-      ) : null}
+      ) : (
+        <>
+          {/* Email Field */}
+          <Field
+            label="Email Address"
+            icon={EnvelopeSimple}
+            placeholder="Enter your email address"
+            autoCapitalize="none"
+            keyboardType="email-address"
+            value={email}
+            onChangeText={(v) => {
+              setEmail(v);
+              setError("");
+            }}
+            autoComplete="email"
+          />
+
+          {/* Password Field */}
+          <Text weight="semibold" size={14} style={{ marginBottom: 8 }}>
+            Password
+          </Text>
+          <View style={[s.inputWrap, { marginBottom: 12 }]}>
+            <Lock size={20} color="#737984" />
+            <TextInput
+              accessibilityLabel="Password"
+              placeholder="Enter your password"
+              placeholderTextColor="#9295A1"
+              style={s.input}
+              value={password}
+              onChangeText={(v) => {
+                setPassword(v);
+                setError("");
+              }}
+              secureTextEntry={!visible}
+              autoComplete="current-password"
+              onSubmitEditing={handleSignIn}
+            />
+            <IconButton
+              icon={visible ? Eye : EyeSlash}
+              label={visible ? "Hide password" : "Show password"}
+              onPress={() => setVisible(!visible)}
+            />
+          </View>
+
+          {/* Daycare Code Toggle */}
+          {showDaycareCode ? (
+            <Field
+              label="Daycare Code / Slug"
+              icon={House}
+              placeholder="e.g. sunflower-daycare"
+              autoCapitalize="none"
+              value={daycareCode}
+              onChangeText={(v) => {
+                setDaycareCode(v);
+                setError("");
+              }}
+            />
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setShowDaycareCode(true)}
+              style={{ alignSelf: "flex-start", marginBottom: 14 }}
+            >
+              <Text size={12} weight="medium" color="#2F80ED">
+                + Sign in with Daycare Code
+              </Text>
+            </Pressable>
+          )}
+
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => navigation.navigate("ForgotPassword")}
+            style={{ alignSelf: "flex-end", marginBottom: 16 }}
+          >
+            <Text size={13} weight="medium" color="#4D5663">
+              Forgot Password?
+            </Text>
+          </Pressable>
+
+          {/* Error Banner */}
+          {error ? (
+            <View style={{ marginBottom: 16 }}>
+              <Notice tone="error">{error}</Notice>
+            </View>
+          ) : null}
 
       {/* Primary Action Button */}
       <Button
@@ -236,6 +338,8 @@ export function LoginScreen({ navigation, route }: any) {
           <Text size={13} weight="bold" color="#10263D">How to get access</Text>
         </Pressable>
       </View>
+      </>
+      )}
 
       {/* Staff Portal Link */}
       <Pressable

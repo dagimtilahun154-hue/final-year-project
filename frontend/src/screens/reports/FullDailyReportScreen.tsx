@@ -31,13 +31,18 @@ import { getDailyReport, DetailedDailyReport } from "../../api/parentApi";
 
 export function FullDailyReportScreen({ navigation, route }: any) {
   const { selectedChild } = useChild();
-  const reportId = route.params?.reportId ?? 1;
+  const reportId = route.params?.reportId;
 
   const [report, setReport] = useState<DetailedDailyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const loadReport = async () => {
+    if (!reportId) {
+      setError("No report selected. Please view your child's reports list.");
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {

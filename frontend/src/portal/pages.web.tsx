@@ -165,8 +165,74 @@ export function Overview(ctx: PageContext) {
   const reportRate = m.total ? Math.round((m.submitted / m.total) * 100) : 0;
   const lowStock = data.products.filter((p) => p.stock_qty <= 5).length;
   const health = data.health.filter((h) => !h.parent_notified).length;
+
+  // Onboarding Guided Setup Checklist calculations
+  const setupSteps = [
+    { id: "settings", label: "Daycare settings & brand configured", done: Boolean(data.daycare?.name), page: "branding" },
+    { id: "classrooms", label: "Classrooms & groups created", done: data.groups.length > 0, page: "groups" },
+    { id: "staff", label: "Caregivers & staff invited", done: data.users.some((u) => u.role === "caregiver"), page: "caregivers" },
+    { id: "children", label: "Children enrolled & linked to families", done: data.children.length > 0, page: "children" },
+    { id: "reports", label: "Daily activity routine initiated", done: m.submitted > 0, page: "reports" },
+  ];
+  const completedSetupSteps = setupSteps.filter((s) => s.done).length;
+  const isSetupComplete = completedSetupSteps === setupSteps.length;
+
   return (
     <>
+      {/* Onboarding Guided Setup Checklist */}
+      {!isSetupComplete && (
+        <Card style={{ marginBottom: 20, borderLeft: "4px solid #008794", backgroundColor: "#F7FCFC" }}>
+          <div className="p-card-head" style={{ marginBottom: 12 }}>
+            <div>
+              <h2 style={{ fontSize: 18, color: "#10263D" }}>Daycare Onboarding Setup Checklist</h2>
+              <p>Follow these essential setup steps to get your center completely operational.</p>
+            </div>
+            <Badge
+              value={`${completedSetupSteps} of ${setupSteps.length} complete`}
+              tone={completedSetupSteps > 2 ? "green" : "gold"}
+            />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+            {setupSteps.map((step) => (
+              <div
+                key={step.id}
+                onClick={() => (step.page === "branding" ? open("branding") : go(step.page))}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  backgroundColor: step.done ? "#EDF7F5" : "#FFFFFF",
+                  border: step.done ? "1px solid #C2E7E2" : "1px solid #E2E6ED",
+                  cursor: "pointer",
+                }}
+              >
+                <span
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: step.done ? "#008794" : "#E2E6ED",
+                    color: step.done ? "#FFFFFF" : "#767F8D",
+                    fontSize: 12,
+                    fontWeight: "bold",
+                  }}
+                >
+                  {step.done ? "✓" : "○"}
+                </span>
+                <span style={{ fontSize: 13, fontWeight: step.done ? "500" : "600", color: step.done ? "#2C5D58" : "#1A202C" }}>
+                  {step.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <div className="p-grid stats">
         <Stat
           title="Enrolled children"

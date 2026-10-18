@@ -15,7 +15,24 @@ interface AuthContextType {
   login: (
     email: string,
     password: string,
-  ) => Promise<{ success: boolean; error?: string; role?: string; profileComplete?: boolean }>;
+    daycareCode?: string
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    role?: string;
+    profileComplete?: boolean;
+    mfaRequired?: boolean;
+    challengeToken?: string;
+  }>;
+  verifyMfa: (
+    challengeToken: string,
+    totpCode: string
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    role?: string;
+    profileComplete?: boolean;
+  }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   enablePreview: () => void;
@@ -107,12 +124,48 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     initializeAuth();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, daycareCode?: string) => {
     setIsLoading(true);
     try {
-      const response = await apiClient.post<AuthResponse>("/auth/login", {
-        email,
-        password,
+      const payload: any = { email, password };
+      if (daycareCode && daycareCode.trim()) {
+        payload.daycare_code = daycareCode.trim();
+      }
+      const response = await apiClient.post<any>("/auth/login", payload);
+
+      // Check if MFA is required by the backend
+      if (response.data?.mfa_required || response.data?.challenge_token) {
+        setIsLoading(false);
+        return {
+          success: false,
+          mfaRequired: true,
+          challengeToken: response.data.challenge_token,
+        };
+      }
+
+      const { token: receivedToken, user: receivedUser } = response.data;
+      await tokenStorage.setToken(receivedToken);
+      setToken(receivedToken);
+      setUser(receivedUser as UserProfileMe);
+      setIsLoading(false);
+      return {
+        success: true,
+        role: receivedUser.role,
+        profileComplete: (receivedUser as UserProfileMe).profile_complete,
+      };
+    } catch (err: any) {
+      setIsLoading(false);
+      const errorMsg = extractErrorMessage(err);
+      return { success: false, error: errorMsg };
+    }
+  };
+
+  const verifyMfa = async (challengeToken: string, totpCode: string) => {
+    setIsLoading(true);
+    try {
+      const response = await apiClient.post<any>("/auth/mfa/verify", {
+        challenge_token: challengeToken,
+        totp_code: totpCode,
       });
       const { token: receivedToken, user: receivedUser } = response.data;
       await tokenStorage.setToken(receivedToken);
@@ -149,7 +202,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
 
   return (
     <AuthContext.Provider
-      value={{ user, token, isLoading, login, logout, refreshUser, enablePreview }}
+      value={{ user, token, isLoading, login, verifyMfa, logout, refreshUser, enablePreview }}
     >
       {children}
     </AuthContext.Provider>

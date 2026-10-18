@@ -30,6 +30,42 @@ export interface FullChildProfile {
   emergency_contacts: EmergencyContact[];
 }
 
+export interface CareProfileResponse {
+  child: FullChildProfile & {
+    group_id?: number;
+    caregiver_id?: number;
+    pickup_authorized?: boolean;
+  };
+  parent: {
+    id: number;
+    name: string;
+    profile_complete: boolean;
+  };
+  version: string;
+}
+
+export interface SaveCareProfileInput {
+  version: string;
+  profile?: {
+    full_name?: string;
+    dob?: string;
+    gender?: 'male' | 'female' | 'other';
+    photo_url?: string | null;
+    relationship?: string;
+  };
+  parent_name?: string;
+  care_instructions?: Array<{
+    category: 'allergy' | 'dietary' | 'medical_note' | 'general' | 'diet' | 'medication' | 'note' | 'routine';
+    instruction_text: string;
+  }>;
+  emergency_contacts?: Array<{
+    name: string;
+    relationship: string;
+    phone: string;
+  }>;
+  complete_profile?: boolean;
+}
+
 /** GET /api/parent/children — list this parent's linked children */
 export const getMyChildren = async (): Promise<ChildSummary[]> => {
   const res = await apiClient.get<{ children: ChildSummary[] }>('/parent/children');
@@ -40,6 +76,24 @@ export const getMyChildren = async (): Promise<ChildSummary[]> => {
 export const getMyChild = async (childId: number): Promise<FullChildProfile> => {
   const res = await apiClient.get<{ child: FullChildProfile }>(`/parent/children/${childId}`);
   return res.data.child;
+};
+
+/** GET /api/parent/children/:id/care-profile — atomic care profile with 64-char version */
+export const getChildCareProfile = async (childId: number): Promise<CareProfileResponse> => {
+  const res = await apiClient.get<CareProfileResponse>(`/parent/children/${childId}/care-profile`);
+  return res.data;
+};
+
+/** PATCH /api/parent/children/:id/care-profile — atomic whole-form care profile save */
+export const saveChildCareProfile = async (
+  childId: number,
+  payload: SaveCareProfileInput
+): Promise<CareProfileResponse> => {
+  const res = await apiClient.patch<CareProfileResponse>(
+    `/parent/children/${childId}/care-profile`,
+    payload
+  );
+  return res.data;
 };
 
 /** PUT /api/parent/children/:id/care — replace all care instructions */
@@ -195,13 +249,28 @@ export interface StoreProduct {
   name: string;
   description?: string;
   price: number;
+  stock_qty: number;
   stock_quantity: number;
-  is_active: boolean;
+  available: boolean;
+  is_active?: boolean;
 }
 
 export const getStoreProducts = async (): Promise<StoreProduct[]> => {
-  const res = await apiClient.get<{ data: StoreProduct[] }>('/store/products');
-  return res.data.data || [];
+  const res = await apiClient.get<{ data: any[] }>('/store/products');
+  return (res.data.data || []).map((p: any) => {
+    const rawStock = p.stock_qty !== undefined ? Number(p.stock_qty) : (p.stock_quantity !== undefined ? Number(p.stock_quantity) : 0);
+    return {
+      id: p.id,
+      category_id: p.category_id,
+      name: p.name,
+      description: p.description,
+      price: Number(p.price) || 0,
+      stock_qty: rawStock,
+      stock_quantity: rawStock,
+      available: p.available !== false && rawStock > 0,
+      is_active: p.available !== false,
+    };
+  });
 };
 
 /** Authorized Guardians */

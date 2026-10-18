@@ -12,6 +12,7 @@ import { clampQuantity } from "../utils/cart";
 interface ChildContextType {
   selectedChild: ChildSummary | null;
   setSelectedChild: (child: ChildSummary) => void;
+  linkedChildren: ChildSummary[];
   // Shopping Cart state
   cart: CartItem[];
   addToCart: (product: Product, quantity?: number) => void;
@@ -32,26 +33,78 @@ const DEFAULT_CHILD: ChildSummary = {
   group_name: "Sunflower Group",
 };
 
+const getStoredChildId = (userId: number): number | null => {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const val = window.localStorage.getItem(`ankelba_active_child_${userId}`);
+      return val ? parseInt(val, 10) : null;
+    }
+  } catch {}
+  return null;
+};
+
+const setStoredChildId = (userId: number, childId: number) => {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem(`ankelba_active_child_${userId}`, String(childId));
+    }
+  } catch {}
+};
+
+const clearStoredChildId = (userId: number) => {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.removeItem(`ankelba_active_child_${userId}`);
+    }
+  } catch {}
+};
+
 const ChildContext = createContext<ChildContextType | undefined>(undefined);
 
 export const ChildProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
   const { user } = useAuth();
-  const [selectedChild, setSelectedChild] = useState<ChildSummary | null>(
+  const [selectedChild, setSelectedChildState] = useState<ChildSummary | null>(
     DEFAULT_CHILD,
   );
   const [cart, setCart] = useState<CartItem[]>([]);
+  const prevUserIdRef = React.useRef<number | null>(null);
 
   useEffect(() => {
+    const prevUserId = prevUserIdRef.current;
+    const currentUserId = user?.id ?? null;
+
+    // Clear child & cart state when switching accounts
+    if (prevUserId !== null && prevUserId !== currentUserId) {
+      setCart([]);
+      if (prevUserId) clearStoredChildId(prevUserId);
+    }
+    prevUserIdRef.current = currentUserId;
+
     if (user?.linked_children && user.linked_children.length > 0) {
-      setSelectedChild(user.linked_children[0]);
+      const storedId = getStoredChildId(user.id);
+      const found = storedId ? user.linked_children.find((c) => c.id === storedId) : null;
+      if (found) {
+        setSelectedChildState(found);
+      } else {
+        setSelectedChildState(user.linked_children[0]);
+        setStoredChildId(user.id, user.linked_children[0].id);
+      }
     } else if (user) {
-      setSelectedChild(null);
+      setSelectedChildState(null);
     } else {
-      setSelectedChild(DEFAULT_CHILD);
+      setSelectedChildState(DEFAULT_CHILD);
+      setCart([]);
     }
   }, [user]);
+
+  const setSelectedChild = (child: ChildSummary) => {
+    setSelectedChildState(child);
+    if (user?.id) {
+      setStoredChildId(user.id, child.id);
+    }
+  };
 
   const addToCart = (product: Product, quantity: number = 1) => {
     setCart((prev) => {
@@ -123,6 +176,7 @@ export const ChildProvider: React.FC<{ children: ReactNode }> = ({
       value={{
         selectedChild,
         setSelectedChild,
+        linkedChildren: user?.linked_children || [],
         cart,
         addToCart,
         removeFromCart,
