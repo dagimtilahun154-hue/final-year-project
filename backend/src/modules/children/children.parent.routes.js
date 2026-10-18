@@ -11,6 +11,9 @@ const { allowRoles } = require('../../middleware/rbac');
 const parentService = require('./children.parent.service');
 
 const parentOnly = [auth, allowRoles('parent')];
+const profileSave = require('./children.profile-save');
+router.get('/children/:id/care-profile', ...parentOnly, profileSave.get);
+router.patch('/children/:id/care-profile', ...parentOnly, profileSave.save);
 
 // List this parent's linked children
 router.get('/children', ...parentOnly, parentService.listMyChildren);

@@ -4,6 +4,7 @@ import {
   Dataset,
   Row,
   allowedDuty,
+  allowedAttendance,
   attendanceStatus,
   dayOf,
   dutyError,
@@ -594,10 +595,10 @@ export default function Portal() {
           );
         if (
           staff &&
-          !allowedDuty(data.duties, actor!.id, row.group_id, "attendance")
+          !allowedAttendance(data.duties, actor!, row)
         )
           throw Error(
-            "Your current shift does not permit attendance for this child.",
+            "Attendance requires assignment to this child or an active attendance shift.",
           );
         const body = {
           child_id: row.id,

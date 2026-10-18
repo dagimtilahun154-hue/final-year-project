@@ -151,6 +151,7 @@ const updateCareInstructions = async (req, res, next) => {
     const client = await db.connect();
     try {
       await client.query('BEGIN');
+      await require('./children.profile-save').authorize(client, req.user, childId);
       await client.query(`DELETE FROM care_instructions WHERE child_id = $1`, [childId]);
 
       const inserted = [];
@@ -207,6 +208,7 @@ const updateEmergencyContacts = async (req, res, next) => {
     const client = await db.connect();
     try {
       await client.query('BEGIN');
+      await require('./children.profile-save').authorize(client, req.user, childId);
       await client.query(`DELETE FROM emergency_contacts WHERE child_id = $1`, [childId]);
 
       const inserted = [];
@@ -274,6 +276,7 @@ const updateChildProfile = async (req, res, next) => {
     const client = await db.connect();
     try {
       await client.query('BEGIN');
+      await require('./children.profile-save').authorize(client, req.user, childId);
 
       // Update child row (parents cannot change group_id/classroom assignment)
       const childUpdate = await client.query(

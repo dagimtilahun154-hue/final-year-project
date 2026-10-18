@@ -25,8 +25,8 @@ async function assertScope(client,user,child,action,regular=false) {
    throw failure('Child does not belong to your daycare center.', 403);
  }
  if(actor.role==='admin'||actor.role==='super_admin')return actor;
- if(regular&&action==='attendance'&&child.caregiver_id===actor.id)return actor;
- const rows=await queryRows(client,`SELECT id FROM front_desk_assignments WHERE staff_id=$1 AND status='active' AND starts_at<=clock_timestamp() AND ends_at>clock_timestamp() AND (group_id IS NULL OR group_id=$2) AND ${action==='pickup'?'can_pickup':'can_attendance'}=TRUE FOR SHARE`,[actor.id,child.group_id]);
+ if(action==='attendance'&&child.caregiver_id===actor.id)return actor;
+ const rows=await queryRows(client,`SELECT id FROM front_desk_assignments WHERE staff_id=$1 AND daycare_id=$3 AND status='active' AND starts_at<=clock_timestamp() AND ends_at>clock_timestamp() AND (group_id IS NULL OR group_id=$2) AND ${action==='pickup'?'can_pickup':'can_attendance'}=TRUE FOR SHARE`,[actor.id,child.group_id,actor.daycare_id]);
  if(!rows.length)throw failure('No active front-desk assignment for this child and action.',403);
  return actor;
 }
@@ -91,7 +91,7 @@ async function snapshot(date,days,user,staffOnly=false) {
   const daycareId = actor.role === 'super_admin' ? (user.queryDaycareId || null) : actor.daycare_id;
   if(staffOnly){date=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Addis_Ababa',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());days=1;}
   const duties=await queryRows(client,`SELECT * FROM front_desk_assignments WHERE ($1::integer IS NULL OR staff_id=$1) AND ($2::integer IS NULL OR daycare_id=$2) ORDER BY starts_at DESC`,[staffOnly?actor.id:null,daycareId]);
-  const children=await queryRows(client,staffOnly?`SELECT c.* FROM children c WHERE c.enrollment_status='active' AND ($2::integer IS NULL OR c.daycare_id=$2) AND (c.caregiver_id=$1 OR EXISTS (SELECT 1 FROM front_desk_assignments d WHERE d.staff_id=$1 AND d.status='active' AND (d.group_id IS NULL OR d.group_id=c.group_id)) OR NOT EXISTS (SELECT 1 FROM front_desk_assignments d WHERE d.staff_id=$1 AND d.status='active')) ORDER BY c.full_name`:`SELECT * FROM children WHERE ($1::integer IS NULL OR daycare_id=$1) ORDER BY full_name`,staffOnly?[actor.id,daycareId]:[daycareId]);
+  const children=await queryRows(client,staffOnly?`SELECT c.* FROM children c WHERE c.enrollment_status='active' AND ($2::integer IS NULL OR c.daycare_id=$2) AND (c.caregiver_id=$1 OR EXISTS (SELECT 1 FROM front_desk_assignments d WHERE d.staff_id=$1 AND d.daycare_id=c.daycare_id AND d.status='active' AND d.starts_at<=clock_timestamp() AND d.ends_at>clock_timestamp() AND (d.can_attendance OR d.can_pickup) AND (d.group_id IS NULL OR d.group_id=c.group_id))) ORDER BY c.full_name`:`SELECT * FROM children WHERE ($1::integer IS NULL OR daycare_id=$1) ORDER BY full_name`,staffOnly?[actor.id,daycareId]:[daycareId]);
   const ids=children.map(c=>c.id);
   const userCols = await queryRows(client, "SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name IN ('phone', 'title', 'qualifications', 'emergency_contact', 'shift')");
   const hasExtraCols = userCols.length > 0;

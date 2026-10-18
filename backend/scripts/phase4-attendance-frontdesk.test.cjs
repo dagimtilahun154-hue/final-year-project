@@ -155,6 +155,42 @@ test('Phase 4: Attendance, Front-Desk Shifts & Verified Pickup Transitions', asy
     assertTestDatabaseName(name);
     const f = await fixture(db);
     const mod = setupContext(pool);
+    await t.test('Portal HTTP: assigned caregiver can log in and check in without a shift', async () => {
+      process.env.NODE_ENV = 'test';
+      process.env.DAYCARE_AUTH_ENABLED = 'false';
+      const app = require('../src/app');
+      const server = app.listen(0, '127.0.0.1');
+      await require('node:events').once(server, 'listening');
+      try {
+        const base = `http://127.0.0.1:${server.address().port}/api`;
+        const request = async (route, body, token) => {
+          const response = await fetch(base + route, { method: body ? 'POST' : 'GET',
+            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            ...(body ? { body: JSON.stringify(body) } : {}) });
+          return { status: response.status, body: await response.json() };
+        };
+        assert.equal((await request('/auth/login', { email: f.caregiverA1.email, password: 'wrong-password' })).status, 401);
+        const login = await request('/auth/login', { email: f.caregiverA1.email, password });
+        assert.equal(login.status, 200);
+        const token = login.body.token;
+        const workspace = await request('/portal/workspace', null, token);
+        assert.equal(workspace.status, 200);
+        assert.deepEqual(workspace.body.children.map(child => child.id), [f.childA1.id]);
+        const result = await request('/portal/attendance', { child_id: f.childA1.id, event_type: 'checkin' }, token);
+        assert.equal(result.status, 200, JSON.stringify(result.body));
+        assert.equal(result.body.recorded_by, f.caregiverA1.id);
+        for (const child of [f.childA2, f.childB]) {
+          assert.equal((await request('/portal/attendance', { child_id: child.id, event_type: 'checkin' }, token)).status, 403);
+        }
+        assert.equal((await request('/portal/checkout', { child_id: f.childA1.id, guardian_user_id: f.parentA.id,
+          method: 'manual', identity_confirmed: true, reason: 'Checked identification document' }, token)).status, 403);
+        await db('attendance').where({ id: result.body.id }).delete();
+      } finally {
+        server.closeAllConnections();
+        await new Promise(resolve => server.close(resolve));
+      }
+    });
+
 
     // ─────────────────────────────────────────────────────────────────────────
     // 1. Front-Desk Duty Assignment & Revocation (B10, FR-DESK-01)

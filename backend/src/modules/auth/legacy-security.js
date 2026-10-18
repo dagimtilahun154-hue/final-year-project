@@ -2,12 +2,12 @@
 
 const crypto = require('node:crypto');
 
-// Exact PostgreSQL epoch text preserves microseconds. JavaScript Date would
-// truncate a rapid suspend/reactivate cycle to the same millisecond.
+// Migration 018 decouples security changes from profile edits. JSON lookup keeps
+// older databases compatible until migration; exact epoch text is the fallback.
 const ACCOUNT_FIELDS = `u.id, u.name, u.email, u.password_hash, u.status,
   u.profile_complete, u.daycare_id, r.name AS role,
-  extract(epoch from u.updated_at)::text AS user_revision,
-  extract(epoch from d.updated_at)::text AS daycare_revision,
+  COALESCE(to_jsonb(u)->>'security_revision', extract(epoch from u.updated_at)::text) AS user_revision,
+  COALESCE(to_jsonb(d)->>'security_revision', extract(epoch from d.updated_at)::text) AS daycare_revision,
   d.name AS daycare_name, d.status AS daycare_status, d.subscription_plan, d.trial_ends_at`;
 const ACCOUNT_JOIN = 'FROM users u JOIN roles r ON r.id = u.role_id LEFT JOIN daycares d ON d.id = u.daycare_id';
 

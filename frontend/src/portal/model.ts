@@ -433,3 +433,12 @@ export function makePreview(date = today()): Dataset {
     messages: [],
   };
 }
+
+// Classroom assignment permits attendance, but never grants pickup permission.
+export function allowedAttendance(duties: Row[], actor: Row, child: Row, now = new Date()): boolean {
+  if (actor.status && actor.status !== "active") return false;
+  if (actor.daycare_id && child.daycare_id && actor.daycare_id !== child.daycare_id) return false;
+  return actor.role === "admin" || (actor.role === "caregiver" && (
+    child.caregiver_id === actor.id || allowedDuty(duties, actor.id, child.group_id, "attendance", now)
+  ));
+}
