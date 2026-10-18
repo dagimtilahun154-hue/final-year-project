@@ -31,7 +31,7 @@ const getChildAttendance = async (childIdParam, query = {}, user) => {
   }
 
   const child = childRows[0];
-  if (user && user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+  if ((!user?.daycare_id || child.daycare_id !== user.daycare_id)) {
     const err = new Error('Child profile not found');
     err.statusCode = 404;
     throw err;
@@ -149,7 +149,7 @@ const getAttendanceSummary = async (query = {}, user) => {
     }
     const child = childRows[0];
 
-    if (user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+    if ((!user?.daycare_id || child.daycare_id !== user.daycare_id)) {
       const err = new Error('Child not found');
       err.statusCode = 404;
       throw err;

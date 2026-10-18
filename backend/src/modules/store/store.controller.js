@@ -70,7 +70,7 @@ const updateOrderStatus = async (req, res, next) => {
 
 const listCategories = async (req, res, next) => {
   try {
-    const result = await svc.listCategories();
+    const result = await svc.listCategories(req.user);
     res.json(result);
   } catch (e) {
     next(e);
@@ -79,7 +79,7 @@ const listCategories = async (req, res, next) => {
 
 const createCategory = async (req, res, next) => {
   try {
-    const result = await svc.createCategory(req.body);
+    const result = await svc.createCategory(req.body, req.user);
     res.status(201).json(result);
   } catch (e) {
     next(e);
@@ -88,7 +88,7 @@ const createCategory = async (req, res, next) => {
 
 const updateCategory = async (req, res, next) => {
   try {
-    const result = await svc.updateCategory(req.params.id, req.body);
+    const result = await svc.updateCategory(req.params.id, req.body, req.user);
     res.json(result);
   } catch (e) {
     next(e);
@@ -97,7 +97,7 @@ const updateCategory = async (req, res, next) => {
 
 const deleteCategory = async (req, res, next) => {
   try {
-    const result = await svc.deleteCategory(req.params.id);
+    const result = await svc.deleteCategory(req.params.id, req.user);
     res.json(result);
   } catch (e) {
     next(e);

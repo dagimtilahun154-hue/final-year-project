@@ -202,7 +202,7 @@ const getChild = async (id, user) => {
   const child = childRows[0];
 
   // Daycare isolation check
-  if (!isSuperAdmin && user && user.daycare_id && child.daycare_id !== user.daycare_id) {
+  if ((!user?.daycare_id || child.daycare_id !== user.daycare_id)) {
     const err = new Error('Child profile not found');
     err.statusCode = 404;
     throw err;
@@ -360,7 +360,7 @@ const getGuardians = async (childId, user) => {
   const isSuperAdmin = user && user.role === 'super_admin';
 
   const childCheck = await db.query(`SELECT id, daycare_id FROM children WHERE id = $1`, [cId]);
-  if (childCheck.rows.length === 0 || (!isSuperAdmin && user && user.daycare_id && childCheck.rows[0].daycare_id !== user.daycare_id)) {
+  if (childCheck.rows.length === 0 || ((!user?.daycare_id || childCheck.rows[0].daycare_id !== user.daycare_id))) {
     const err = new Error('Child profile not found');
     err.statusCode = 404;
     throw err;
@@ -400,7 +400,7 @@ const removeGuardian = async (childId, guardianLinkId, user = null) => {
   const isSuperAdmin = user && user.role === 'super_admin';
 
   const childCheck = await db.query(`SELECT id, daycare_id FROM children WHERE id = $1`, [cId]);
-  if (childCheck.rows.length === 0 || (!isSuperAdmin && user && user.daycare_id && childCheck.rows[0].daycare_id !== user.daycare_id)) {
+  if (childCheck.rows.length === 0 || ((!user?.daycare_id || childCheck.rows[0].daycare_id !== user.daycare_id))) {
     const err = new Error('Child profile not found');
     err.statusCode = 404;
     throw err;

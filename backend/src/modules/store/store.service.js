@@ -51,6 +51,7 @@ const listProducts = async (query = {}, user) => {
  * Create a new product in the store (Admin only).
  */
 const createProduct = async (body, user) => {
+  await assertCategory(body.category_id, user);
   const daycareId = user.role === 'super_admin' ? (body.daycare_id || null) : user.daycare_id;
   const { rows } = await db.query(
     `INSERT INTO products (name, description, price, category_id, stock_qty, available, created_by, daycare_id)
@@ -74,6 +75,7 @@ const createProduct = async (body, user) => {
  * Update product details or stock (Admin only).
  */
 const updateProduct = async (productIdParam, body, user) => {
+  await assertCategory(body.category_id, user);
   const productId = parseInt(productIdParam, 10);
 
   const { rows: existingRows } = await db.query(
@@ -354,85 +356,56 @@ const updateOrderStatus = async (orderIdParam, body, user) => {
 /**
  * Category Management — §8.10 | SRS: FR-ECM-01
  */
-const listCategories = async () => {
-  const { rows } = await db.query(
-    `SELECT c.id, c.name, COUNT(p.id)::int AS product_count
-     FROM product_categories c
-     LEFT JOIN products p ON p.category_id = c.id
-     GROUP BY c.id, c.name
-     ORDER BY c.name ASC`
-  );
+function categoryActor(user) {
+  if (!user?.daycare_id || !['admin','caregiver','parent'].includes(user.role)) {
+    throw Object.assign(new Error('Daycare account required'), { statusCode: 403 });
+  }
+  return user.daycare_id;
+}
+async function assertCategory(id, user) {
+  if (id == null) return;
+  const tenant = categoryActor(user);
+  const { rows } = await db.query('SELECT id FROM product_categories WHERE id=$1 AND (daycare_id=$2 OR daycare_id IS NULL)', [id,tenant]);
+  if (!rows.length) throw Object.assign(new Error('Category not found'), { statusCode: 404 });
+}
+const listCategories = async user => {
+  const tenant = categoryActor(user);
+  const { rows } = await db.query(`SELECT c.id,c.name,c.daycare_id,COUNT(p.id)::int AS product_count
+    FROM product_categories c LEFT JOIN products p ON p.category_id=c.id AND p.daycare_id=$1
+    WHERE c.daycare_id=$1 OR c.daycare_id IS NULL GROUP BY c.id ORDER BY c.name`, [tenant]);
   return { data: rows };
 };
-
-const createCategory = async (body) => {
-  const name = body.name.trim();
-  const existing = await db.query(
-    `SELECT id FROM product_categories WHERE LOWER(name) = LOWER($1)`,
-    [name]
-  );
-  if (existing.rows.length > 0) {
-    const err = new Error('A category with this name already exists');
-    err.statusCode = 409;
-    throw err;
+const createCategory = async (body,user) => {
+  const tenant = categoryActor(user);
+  try {
+    return (await db.query('INSERT INTO product_categories(name,daycare_id) VALUES($1,$2) RETURNING *', [body.name.trim(),tenant])).rows[0];
+  } catch (error) {
+    if (error.code==='23505') throw Object.assign(new Error('A category with this name already exists'), { statusCode: 409 });
+    throw error;
   }
-
-  const { rows } = await db.query(
-    `INSERT INTO product_categories (name) VALUES ($1) RETURNING *`,
-    [name]
-  );
-  return rows[0];
 };
-
-const updateCategory = async (idParam, body) => {
-  const id = parseInt(idParam, 10);
-  const name = body.name.trim();
-
-  const existing = await db.query(
-    `SELECT id FROM product_categories WHERE LOWER(name) = LOWER($1) AND id != $2`,
-    [name, id]
-  );
-  if (existing.rows.length > 0) {
-    const err = new Error('A category with this name already exists');
-    err.statusCode = 409;
-    throw err;
+const updateCategory = async (id,body,user) => {
+  const tenant = categoryActor(user);
+  try {
+    const { rows } = await db.query('UPDATE product_categories SET name=$1 WHERE id=$2 AND daycare_id=$3 RETURNING *', [body.name.trim(),id,tenant]);
+    if (!rows.length) throw Object.assign(new Error('Category not found or shared category is read-only'), { statusCode: 404 });
+    return rows[0];
+  } catch (error) {
+    if (error.code==='23505') throw Object.assign(new Error('A category with this name already exists'), { statusCode: 409 });
+    throw error;
   }
-
-  const { rows } = await db.query(
-    `UPDATE product_categories SET name = $1 WHERE id = $2 RETURNING *`,
-    [name, id]
-  );
-  if (rows.length === 0) {
-    const err = new Error('Category not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  return rows[0];
 };
-
-const deleteCategory = async (idParam) => {
-  const id = parseInt(idParam, 10);
-
-  const { rows: prods } = await db.query(
-    `SELECT COUNT(*)::int AS count FROM products WHERE category_id = $1`,
-    [id]
-  );
-  if (prods[0]?.count > 0) {
-    const err = new Error(`Cannot delete category: ${prods[0].count} product(s) are assigned to it`);
-    err.statusCode = 409;
-    throw err;
-  }
-
-  const { rows } = await db.query(
-    `DELETE FROM product_categories WHERE id = $1 RETURNING id`,
-    [id]
-  );
-  if (rows.length === 0) {
-    const err = new Error('Category not found');
-    err.statusCode = 404;
-    throw err;
-  }
-  return { message: 'Category deleted successfully' };
+const deleteCategory = async (id,user) => {
+  const tenant = categoryActor(user);
+  const { transaction } = require('../auth/legacy-security');
+  return transaction(db,async client=>{
+    const { rows } = await client.query('SELECT id FROM product_categories WHERE id=$1 AND daycare_id=$2 FOR UPDATE', [id,tenant]);
+    if (!rows.length) throw Object.assign(new Error('Category not found or shared category is read-only'), { statusCode: 404 });
+    const used = await client.query('SELECT 1 FROM products WHERE category_id=$1 LIMIT 1',[id]);
+    if (used.rows.length) throw Object.assign(new Error('Category has assigned products'), { statusCode: 409 });
+    await client.query('DELETE FROM product_categories WHERE id=$1 AND daycare_id=$2',[id,tenant]);
+    return { message: 'Category deleted successfully' };
+  });
 };
 
 module.exports = {

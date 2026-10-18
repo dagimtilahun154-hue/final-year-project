@@ -27,7 +27,7 @@ const createReport = async (body, user) => {
   }
 
   const child = childRows[0];
-  if (user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+  if ((!user?.daycare_id || child.daycare_id !== user.daycare_id)) {
     const err = new Error('Child profile not found');
     err.statusCode = 404;
     throw err;
@@ -142,7 +142,7 @@ const getReport = async (reportIdParam, user) => {
 
   const report = headerRows[0];
   const reportDaycareId = report.daycare_id || report.child_daycare_id;
-  if (user.role !== 'super_admin' && user.daycare_id && reportDaycareId !== user.daycare_id) {
+  if ((!user?.daycare_id || reportDaycareId !== user.daycare_id)) {
     const err = new Error('Daily report not found');
     err.statusCode = 404;
     throw err;
@@ -198,7 +198,7 @@ const getChildReports = async (childIdParam, query = {}, user) => {
   }
 
   const child = childRows[0];
-  if (user.role !== 'super_admin' && user.daycare_id && child.daycare_id !== user.daycare_id) {
+  if ((!user?.daycare_id || child.daycare_id !== user.daycare_id)) {
     const err = new Error('Child profile not found');
     err.statusCode = 404;
     throw err;

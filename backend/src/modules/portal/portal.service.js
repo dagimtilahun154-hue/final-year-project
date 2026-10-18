@@ -74,7 +74,7 @@ async function checkout(body,user) {return transaction(async client=>{
  const actor = await assertScope(client,user,child,'pickup');
  const [guardian]=await queryRows(client,"SELECT gl.id,u.daycare_id FROM guardian_links gl JOIN users u ON u.id=gl.user_id WHERE gl.child_id=$1 AND gl.user_id=$2 AND gl.pickup_authorized=TRUE AND u.status='active' FOR SHARE OF gl,u",[child.id,body.guardian_user_id]);
  if(!guardian)throw failure('This adult is not currently authorized for pickup.',403);
- if(guardian.daycare_id && guardian.daycare_id !== child.daycare_id)throw failure('Guardian does not belong to child daycare.',403);
+ if(guardian.daycare_id !== child.daycare_id)throw failure('Guardian does not belong to child daycare.',403);
  const [previous]=await queryRows(client,`SELECT event_type FROM attendance WHERE child_id=$1 AND ${zoneDay}=(clock_timestamp() AT TIME ZONE 'Africa/Addis_Ababa')::date ORDER BY event_time DESC,id DESC LIMIT 1`,[child.id]);
  const error=transitionError(previous?.event_type,'checkout');if(error)throw failure(error,409);
  if(body.method!=='manual')throw failure('Biometric device integration is not configured. Use the approved manual check.',503);

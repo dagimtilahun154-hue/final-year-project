@@ -67,7 +67,7 @@ const errorHandler = (err, req, res, next) => {
 
   // PostgreSQL unique violation
   if (err.code === '23505') {
-    return res.status(409).json({ error: err.detail || 'A record with this value already exists' });
+    return res.status(409).json({ error: 'A record with this value already exists' });
   }
 
   // PostgreSQL foreign key violation
